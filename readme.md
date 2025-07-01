@@ -29,7 +29,7 @@ This module provides a comprehensive suite of tools designed to enhance the deve
 
 The `DebugServer` is the core of the remote debugging functionality. It should be enabled once in your main program file. The `DebugPrint` class replaces the standard `print()` function to route all output to the `DebugServer` and the log files.
 
-**Setup Example (`main.py`):**
+**Setup Example:**
 ```python
 from tools import DebugServer, DebugPrint
 print = DebugPrint.Print
@@ -45,12 +45,12 @@ print("This message will go to the trace, the log file, and the debug client.")
 
 These classes provide robust, automatic logging to the controller's file system. They manage file creation, rotation, and storage usage to prevent the device from running out of space.
 
-**Setup Example (`main_variables.py` or `main.py`):**
+**Setup Example:**
 ```python
 from tools import DebugFileLogSaver, ProgramLogSaver
 
 # Set the primary processor alias to enable storage management
-DebugFileLogSaver.SetProcessorAlias('processor0')
+DebugFileLogSaver.SetProcessorAlias('ProcessorAlias')
 # Enable logging to file
 DebugFileLogSaver.SetEnableLogging(True)
 
