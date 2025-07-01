@@ -1,0 +1,1 @@
+start pyinstaller.exe --clean --onedir --onefile --exclude-module _bootlocale --hidden-import babel.numbers --collect-data sv_ttk "C:\Users\manyr\OneDrive\Desktop\RD\debug tool\Debug Tool Source\main.py" --distpath "C:\Users\manyr\OneDrive\Desktop\RD\debug tool\dist"
