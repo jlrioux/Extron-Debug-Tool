@@ -6,7 +6,7 @@ datas += collect_data_files('sv_ttk')
 
 
 a = Analysis(
-    ['C:\\Users\\manyr\\OneDrive\\Desktop\\RD\\debug tool\\Debug Tool Source\\main.py'],
+    ['C:\\Users\\manyr\\OneDrive\\Desktop\\RD\\debug tool\\git repo\\Extron-Debug-Tool\\source\\main.py'],
     pathex=[],
     binaries=[],
     datas=datas,

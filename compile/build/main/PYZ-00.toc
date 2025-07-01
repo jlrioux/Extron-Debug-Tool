@@ -1,12 +1,12 @@
-('C:\\Users\\manyr\\OneDrive\\Desktop\\RD\\debug '
- 'tool\\compile\\build\\main\\PYZ-00.pyz',
+('C:\\Users\\manyr\\OneDrive\\Desktop\\RD\\debug tool\\git '
+ 'repo\\Extron-Debug-Tool\\compile\\build\\main\\PYZ-00.pyz',
  [('EthernetClientInterface',
-   'C:\\Users\\manyr\\OneDrive\\Desktop\\RD\\debug tool\\Debug Tool '
-   'Source\\EthernetClientInterface.py',
+   'C:\\Users\\manyr\\OneDrive\\Desktop\\RD\\debug tool\\git '
+   'repo\\Extron-Debug-Tool\\source\\EthernetClientInterface.py',
    'PYMODULE'),
   ('File',
-   'C:\\Users\\manyr\\OneDrive\\Desktop\\RD\\debug tool\\Debug Tool '
-   'Source\\File.py',
+   'C:\\Users\\manyr\\OneDrive\\Desktop\\RD\\debug tool\\git '
+   'repo\\Extron-Debug-Tool\\source\\File.py',
    'PYMODULE'),
   ('PIL',
    'C:\\Python\\Python310\\lib\\site-packages\\PIL\\__init__.py',
@@ -237,28 +237,28 @@
    'C:\\Python\\Python310\\lib\\site-packages\\PIL\\features.py',
    'PYMODULE'),
   ('ProgramDebugger',
-   'C:\\Users\\manyr\\OneDrive\\Desktop\\RD\\debug tool\\Debug Tool '
-   'Source\\ProgramDebugger.py',
+   'C:\\Users\\manyr\\OneDrive\\Desktop\\RD\\debug tool\\git '
+   'repo\\Extron-Debug-Tool\\source\\ProgramDebugger.py',
    'PYMODULE'),
   ('ProgramDebuggerLib',
-   'C:\\Users\\manyr\\OneDrive\\Desktop\\RD\\debug tool\\Debug Tool '
-   'Source\\ProgramDebuggerLib.py',
+   'C:\\Users\\manyr\\OneDrive\\Desktop\\RD\\debug tool\\git '
+   'repo\\Extron-Debug-Tool\\source\\ProgramDebuggerLib.py',
    'PYMODULE'),
   ('ProgramLogger',
-   'C:\\Users\\manyr\\OneDrive\\Desktop\\RD\\debug tool\\Debug Tool '
-   'Source\\ProgramLogger.py',
+   'C:\\Users\\manyr\\OneDrive\\Desktop\\RD\\debug tool\\git '
+   'repo\\Extron-Debug-Tool\\source\\ProgramLogger.py',
    'PYMODULE'),
   ('ProgramLoggerLib',
-   'C:\\Users\\manyr\\OneDrive\\Desktop\\RD\\debug tool\\Debug Tool '
-   'Source\\ProgramLoggerLib.py',
+   'C:\\Users\\manyr\\OneDrive\\Desktop\\RD\\debug tool\\git '
+   'repo\\Extron-Debug-Tool\\source\\ProgramLoggerLib.py',
    'PYMODULE'),
   ('Timer',
-   'C:\\Users\\manyr\\OneDrive\\Desktop\\RD\\debug tool\\Debug Tool '
-   'Source\\Timer.py',
+   'C:\\Users\\manyr\\OneDrive\\Desktop\\RD\\debug tool\\git '
+   'repo\\Extron-Debug-Tool\\source\\Timer.py',
    'PYMODULE'),
   ('Wait',
-   'C:\\Users\\manyr\\OneDrive\\Desktop\\RD\\debug tool\\Debug Tool '
-   'Source\\Wait.py',
+   'C:\\Users\\manyr\\OneDrive\\Desktop\\RD\\debug tool\\git '
+   'repo\\Extron-Debug-Tool\\source\\Wait.py',
    'PYMODULE'),
   ('__future__', 'C:\\Python\\Python310\\lib\\__future__.py', 'PYMODULE'),
   ('_aix_support', 'C:\\Python\\Python310\\lib\\_aix_support.py', 'PYMODULE'),
@@ -2183,8 +2183,8 @@
    'PYMODULE'),
   ('uu', 'C:\\Python\\Python310\\lib\\uu.py', 'PYMODULE'),
   ('variables',
-   'C:\\Users\\manyr\\OneDrive\\Desktop\\RD\\debug tool\\Debug Tool '
-   'Source\\variables.py',
+   'C:\\Users\\manyr\\OneDrive\\Desktop\\RD\\debug tool\\git '
+   'repo\\Extron-Debug-Tool\\source\\variables.py',
    'PYMODULE'),
   ('webbrowser', 'C:\\Python\\Python310\\lib\\webbrowser.py', 'PYMODULE'),
   ('win32com',
