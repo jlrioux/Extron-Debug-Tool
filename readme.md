@@ -141,17 +141,38 @@ This class provides a simple way to store and retrieve data that needs to persis
 ```python
 from tools import NonvolatileValues
 
+#default startup values
+var1 = ''
+var2 = 0
+var3 = [False,False]
+
 # Create an instance tied to a specific file
 nvram = NonvolatileValues('my_settings.json')
+def handle_nvram_var1_var2(values):
+    global var1
+    global var2
 
+    if 'var1key' in values:
+        var1 = values['var1key']
+    if 'var2key' in values:
+        var2 = values['var2key']
+
+def handle_nvram_var3(values:'dict'):
+    global var3
+    if 'var3key' in values:
+        var3 = values['var3key']
+
+nvram.AddSyncValuesFunction(handle_nvram_var1_var2)
+nvram.AddSyncValuesFunction(handle_nvram_var3)
 # Read values on startup
 nvram.ReadValues()
-last_volume = nvram.values.get('last_volume', 50) # Get value, or default to 50
 
 # ... later in the code ...
 
 # Set a new value
-nvram.SetValue('last_volume', 75)
+nvram.SetValue('var1key',var1)
+nvram.SetValue('var2key',var2)
+nvram.SetValue('var3key',var3)
 # Save to the file
 nvram.SaveValues()
 ```
@@ -168,6 +189,9 @@ pw_manager = PasswordManager('SystemPasswords')
 
 # Set a password
 pw_manager.SetPassword('Admin', '1234')
+
+# Generate new password for new user
+generated_password = pw_manager.GeneratePassword('User1')
 
 # Check a password
 is_correct = pw_manager.CheckPassword('Admin', '1234') # Returns True

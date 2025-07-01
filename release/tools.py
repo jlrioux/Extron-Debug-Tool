@@ -7751,7 +7751,7 @@ class VirtualUI(DebugServer):
         self.__SyncFunctions.append(function)
 
     # this function adds a panel or list of panels to the virtual panel, then defines the buttons actions for the newly added panel
-    def AddPanel(self,tps:'_UIDevice|list[_UIDevice]|str'):
+    def AddPanel(self,tps:'_UIDevice|list[_UIDevice]|VirtualUI|list[VirtualUI]|str|list[str]'):
         tpList = self.__get_tp_aliases(tps)
 
         for tp in tpList:
