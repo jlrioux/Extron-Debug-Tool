@@ -218,6 +218,8 @@ Changelog:
         - corrected an issue preventing registering an ebus controller as a host for DIO'
     v 1.8.0.9 - tools.py modification
         - fixed intellisense recognition of non-list parameters for VirtualUI class
+    v 1.8.0.10 - tools.py modification
+        - fixed issue on knob motion event producing an error in the log. the callback still executed anyway, though.
 """
 
 
@@ -7942,7 +7944,7 @@ class VirtualUI(DebugServer):
         return btnlist
     def __create_default_knob_event_handler(self):
         def e(knob:'_Knob',direction:'int'):
-            str_to_send = 'event: VirtualUI({}:{}) ~ Knob({},{}) ~ Turned({})'.format(self.__friendly_name,knob.Host,knob.ID,knob.Name,direction)
+            str_to_send = 'event: VirtualUI({}:{}) ~ Knob({},{}) ~ Turned({})'.format(self.__friendly_name,knob.Host,knob.ID,"Knob1",direction)
             self.__print_to_trace(str_to_send)
             self.__printToServer(str_to_send)
         return e
