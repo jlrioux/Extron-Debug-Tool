@@ -404,7 +404,6 @@ class NonvolatileValues():
                         _ProgramLog(err_msg)
                         _File.DeleteFile(self.__filename)
                     f.close()
-        DebugPrint.Print('rv 2')
         self.values = values
         if self.__syncvaluesfunctions:
             for f in self.__syncvaluesfunctions:
