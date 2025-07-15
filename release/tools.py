@@ -423,20 +423,19 @@ class NonvolatileValues():
 
     def SaveValues(self):
         f = None #type:_File
-        if _File.Exists(self.__filename):
-            with _File(self.__filename,'w') as f:
-                if f:
-                    try:
-                        _json.dump(self.values,f)
-                    except Exception as e:
-                        if sys_allowed_flag:
-                            err_msg = 'EXCEPTION:{}:{}:{}'.format(__class__.__name__,sys._getframe().f_code.co_name,traceback.format_exc())
-                        else:
-                            err_msg = 'EXCEPTION:{}:{}:{}'.format(__class__.__name__,'SaveValues',e)
-                        print(err_msg)
-                        DebugPrint.Print(err_msg)
-                        _ProgramLog(err_msg)
-                    f.close()
+        with _File(self.__filename,'w') as f:
+            if f:
+                try:
+                    _json.dump(self.values,f)
+                except Exception as e:
+                    if sys_allowed_flag:
+                        err_msg = 'EXCEPTION:{}:{}:{}'.format(__class__.__name__,sys._getframe().f_code.co_name,traceback.format_exc())
+                    else:
+                        err_msg = 'EXCEPTION:{}:{}:{}'.format(__class__.__name__,'SaveValues',e)
+                    print(err_msg)
+                    DebugPrint.Print(err_msg)
+                    _ProgramLog(err_msg)
+                f.close()
 
 
     def AddSyncValuesFunction(self,func):
@@ -461,11 +460,8 @@ class PasswordManager():
         self.__password_numeric = password_numeric
         self.__character_count = character_count
         self.__backdoor_password = backdoor_password
-        DebugPrint.Print("pwm 1")
         self.__nvram = NonvolatileValues('{}.csv'.format(manager_id))
-        DebugPrint.Print("pwm 2")
         self.__nvram.ReadValues()
-        DebugPrint.Print("pwm 3")
 
     def GetPassword(self,password_id=''):
         try:
@@ -493,7 +489,7 @@ class PasswordManager():
         return self.__nvram.GetValue(password_id)
 
     def SetPassword(self,password_id:str,value:'int|str'):
-        if self.__password_numeric:
+        if self.__password_numeric and value != '':
             new_password = str(int(value))
         else:
             new_password = value
@@ -567,16 +563,14 @@ class ProgramLogSaver():
 
 
     def __saveprogramlog():
-        if _File.Exists(ProgramLogSaver.__filename):
-            with _File(ProgramLogSaver.__filename, 'w') as f:
-                if f:
-                    _SaveProgramLog(f)
+        with _File(ProgramLogSaver.__filename, 'w') as f:
+            if f:
+                _SaveProgramLog(f)
 
     def __savedummyprogramlog():
-        if _File.Exists('/ProgramLogs/temp.log'):
-            with _File('/ProgramLogs/temp.log', 'w') as f:
-                if f:
-                    _SaveProgramLog(f)
+        with _File('/ProgramLogs/temp.log', 'w') as f:
+            if f:
+                _SaveProgramLog(f)
 
 
     def __checkprogramlog(timer,count):
@@ -690,20 +684,19 @@ class DebugFileLogSaver():
                 if len(DebugFileLogSaver.__cur_logs) > 1:
                     filename = DebugFileLogSaver.__getfilename()
                     f = None #type:_File
-                    if _File.Exists(filename):
-                        with _File(filename, 'a') as f:
-                            if f:
-                                try:
-                                    f.write('\n'.join(DebugFileLogSaver.__cur_logs))
-                                except Exception as e:
-                                    if sys_allowed_flag:
-                                        err_msg = 'EXCEPTION:{}:{}:{}'.format(__class__.__name__,sys._getframe().f_code.co_name,traceback.format_exc())
-                                    else:
-                                        err_msg = 'EXCEPTION:{}:{}:{}'.format(__class__.__name__,'__checklogloop',e)
-                                    print(err_msg)
-                                    DebugPrint.Print(err_msg)
-                                    _ProgramLog(err_msg)
-                                f.close()
+                    with _File(filename, 'a') as f:
+                        if f:
+                            try:
+                                f.write('\n'.join(DebugFileLogSaver.__cur_logs))
+                            except Exception as e:
+                                if sys_allowed_flag:
+                                    err_msg = 'EXCEPTION:{}:{}:{}'.format(__class__.__name__,sys._getframe().f_code.co_name,traceback.format_exc())
+                                else:
+                                    err_msg = 'EXCEPTION:{}:{}:{}'.format(__class__.__name__,'__checklogloop',e)
+                                print(err_msg)
+                                DebugPrint.Print(err_msg)
+                                _ProgramLog(err_msg)
+                            f.close()
                     print('DebugFileLogSaver:added {} logs to file:{}'.format(len(DebugFileLogSaver.__cur_logs),filename))
                     DebugFileLogSaver.__cur_logs = [DebugFileLogSaver.__init_log]
     __save_wait = _Wait(1,__checklogloop)
@@ -5214,10 +5207,9 @@ class ProcessorDeviceWrapper(DebugServer):
         self.__printToLog(self.__friendly_name,'Command','SaveProgramLog')
         dt = _datetime.now()
         filename = 'ProgramLog {}.txt'.format(dt.strftime('%Y-%m-%d %H%M%S'))
-        if _File.Exists(filename):
-            with _File(filename, 'w') as f:
-                if f:
-                    _SaveProgramLog(f)
+        with _File(filename, 'w') as f:
+            if f:
+                _SaveProgramLog(f)
 
 
     def __printToLog(self,device,message_type,data):
