@@ -1,6 +1,8 @@
 '''
 Version: 1.8.0.6
 
+Python Version 3.10
+
 Created By: Jean-Luc Rioux
 
 Last Modified: 2025-03-06

@@ -198,10 +198,10 @@ class ProgramLoggerClass():
             self.end_datetime = '{} {}'.format(self.end_date,self.end_time)
             self.__btn_body_view_log_end_date['text'] = self.end_datetime
     def __get_start_datetime(self):
-        dt = DateTimePickerWindowClass(self.vars,'start')
+        dt = DateTimePickerWindowClass(self.vars,'start',self.start_date,self.start_time)
 
     def __get_end_datetime(self):
-        dt = DateTimePickerWindowClass(self.vars,'end')
+        dt = DateTimePickerWindowClass(self.vars,'end',self.end_date,self.end_time)
     def __pull_processor_logs_ip(self):
         host = self.ip_address
         password = self.ip_password
@@ -223,7 +223,9 @@ class ProgramLoggerClass():
         def u(status):
             self.__lbl_controller_status['text'] = status
             if status == 'Idle':
+                print('status set to idle')
                 self.SetDeviceList()
+                print('done setting device list')
                 self.__body_log_view_enable()
         return u
 
@@ -287,6 +289,7 @@ class ProgramLoggerClass():
         self.Show(self.__frame_body_log)
         self.Show(self.__frame_header_body_nav)
     def __build_current_log_list(self):
+        print('__build_current_log_list busy:{}'.format(self.__device_log_busy))
         if not self.__device_log_busy:
             self.__device_log_busy = True
             log_list = []
@@ -314,8 +317,10 @@ class ProgramLoggerClass():
         else:
             self.__current_log_list.append(log)
     def __show_device_log(self):
+        print('show device log paused:{}'.format(self.__tb_pause_flag))
         if self.__tb_pause_flag:
             return
+        print('show device log len:{}'.format(len(self.__current_log_list)))
         current_tb_log = '\n'.join(self.__current_log_list)
         self.__tb_log.delete('1.0','end')
         self.__tb_log.insert(tk.END,current_tb_log)
@@ -344,6 +349,7 @@ class ProgramLoggerClass():
         log = data['value']
         i = self.__get_device_log_key(device_id,data['value'])
         if device_id not in self.device_info:
+            print('__insert_log: new device:{}'.format(device_id))
             self.device_info[device_id] = {}
             self.device_info[device_id]['name'] = data['name']
         if 'value types' not in self.device_info[device_id]:
@@ -451,12 +457,14 @@ class ProgramLoggerClass():
 
         #public functions
     def SetDeviceList(self):
+        print('SetDeviceList')
         self.__initialize_hide()
         self.__tb_log.delete('1.0','end')
         key_list = list(self.device_info.keys()) #type:list
         key_list.sort()
         self.__device_list = []
         i = 0
+        print('SetDeviceList: keys:{}'.format(key_list))
         for name in key_list:
             value = self.device_info[name]['name']
             self.__device_list.append(value)
@@ -469,6 +477,7 @@ class ProgramLoggerClass():
                 i += 1
 
     def ResetDeviceInfoAndLogs(self):
+        print('ResetDeviceInfoAndLogs')
         self.device_info = {}
         self.__device_logs = {}
         #run items in self.SetDeviceList()
