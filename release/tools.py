@@ -64,9 +64,10 @@ import copy
 """
 Author: Jean-Luc Rioux
 Company: Valley Communications
-Last Modified Date: 2025-03-06
-Version: 1.9.0.0
+Last Modified Date: 2025-10-29
+Version: 1.9.0.1
 Minimum Pro Controller FW: 3.10
+Minimum Pro Q xi Controller FW: 1.09
 
 Changelog:
     v 1.0 - initial release
@@ -226,6 +227,9 @@ Changelog:
     v 1.9.0.0 - tools.py modification
         - fixed a bit of error handling when using 'with _File() as f:' and write operations
         - corrected a object.Settings read issue for UIDevice and ProcessorDevice
+    v 1.9.0.1 - tools.py modification
+        - fixed a typo in the programlog save loop
+        - corrected an issue with onlinestatus refreshing for device wrappers
 """
 
 
@@ -851,9 +855,9 @@ class DebugServer():    #class code
             if 'Listening' not in res:
                 DebugServer.__debug_server_error = res
                 from extronlib.system import ProgramLog
-                ProgramLog('Error Starting Debug Server:{}'.format(res))
+                _ProgramLog('Error Starting Debug Server:{}'.format(res))
             elif 'Already' not in res:
-                ProgramLog('Debug Server restarted:{}'.format(res))
+                _ProgramLog('Debug Server restarted:{}'.format(res))
         DebugServer.__debug_server_listen_busy = False
     __debug_server_listen_timer = _Timer(30,__fn_debug_server_listen_timer)
     __debug_server_listen_timer.Stop()
@@ -2039,7 +2043,7 @@ class CircuitBreakerInterfaceWrapper(DebugServer):
         self.__interface = _CircuitBreakerInterface(Host,Port)
         self.Commands = {
             'State': {'Status': {'Live':self.__interface.State}},
-            'OnlineStatus':{'Status':{}}
+            'OnlineStatus':{'Status':{'Live':'Offline'}}
             }
 
 
@@ -2218,7 +2222,7 @@ class ContactInterfaceWrapper(DebugServer):
         self.__interface = _ContactInterface(Host,Port)
         self.Commands = {
             'State': {'Status': {'Live':self.__interface.State}},
-            'OnlineStatus':{'Status':{}}
+            'OnlineStatus':{'Status':{'Live':'Offline'}}
             }
 
 
@@ -2397,7 +2401,7 @@ class DigitalInputInterfaceWrapper(DebugServer):
         self.__interface = _DigitalInputInterface(Host,Port,Pullup)
         self.Commands = {
             'State': {'Status': {'Live':self.__interface.State}},
-            'OnlineStatus':{'Status':{}}
+            'OnlineStatus':{'Status':{'Live':'Offline'}}
             }
 
 
@@ -2610,7 +2614,7 @@ class DigitalIOInterfaceWrapper(DebugServer):
         self.__interface = _DigitalIOInterface(Host,Port,Mode,Pullup)
         self.Commands = {
             'State': {'Status': {'Live':self.__interface.State}},
-            'OnlineStatus':{'Status':{}}
+            'OnlineStatus':{'Status':{'Live':'Offline'}}
             }
 
 
@@ -2904,7 +2908,7 @@ class FlexIOInterfaceWrapper(DebugServer):
         self.__interface = _FlexIOInterface(Host,Port,Mode,Pullup,Upper,Lower)
         self.Commands = {
             'State': {'Status': {'Live':self.__interface.State}},
-            'OnlineStatus':{'Status':{}},
+            'OnlineStatus':{'Status':{'Live':'Offline'}},
             'AnalogVoltage':{'Status':{'Live':self.__interface.AnalogVoltage}}
             }
 
@@ -3228,8 +3232,8 @@ class IRInterfaceWrapper(DebugServer):
         self.__offline_event_callbacks = []
 
         self.Commands = {
-            'OnlineStatus':{'Status':{}},
-            'LastCommand':{'Status':{}},
+            'OnlineStatus':{'Status':{'Live':'Offline'}},
+            'LastCommand':{'Status':{'Live':None}},
             'File':{'Status':{'Live':File}}
             }
 
@@ -3544,7 +3548,7 @@ class PoEInterfaceWrapper(DebugServer):
             'State': {'Status': {'Live':self.__interface.State}},
             'PowerStatus':{'Status':{'Live':self.__interface.PowerStatus}},
             'CurrentLoad':{'Status':{'Live':self.__interface.CurrentLoad}},
-            'OnlineStatus':{'Status':{}}
+            'OnlineStatus':{'Status':{'Live':'Offline'}}
             }
 
 
@@ -3780,7 +3784,7 @@ class RelayInterfaceWrapper(DebugServer):
         self.__interface = _RelayInterface(Host,Port)
         self.Commands = {
             'State': {'Status': {'Live':self.__interface.State}},
-            'OnlineStatus':{'Status':{}}
+            'OnlineStatus':{'Status':{'Live':'Offline'}}
             }
 
 
@@ -4019,7 +4023,7 @@ class SWACReceptacleInterfaceWrapper(DebugServer):
         self.Commands = {
             'State': {'Status': {'Live':self.__interface.State}},
             'Current': {'Status': {'Live':self.__interface.Current}},
-            'OnlineStatus':{'Status':{}}
+            'OnlineStatus':{'Status':{'Live':'Offline'}}
             }
 
 
@@ -4246,7 +4250,7 @@ class SWPowerInterfaceWrapper(DebugServer):
         self.__interface = _SWPowerInterface(Host,Port)
         self.Commands = {
             'State': {'Status': {'Live':self.__interface.State}},
-            'OnlineStatus':{'Status':{}}
+            'OnlineStatus':{'Status':{'Live':'Offline'}}
             }
 
         @_event(self.__interface,'Online')
@@ -4482,7 +4486,7 @@ class TallyInterfaceWrapper(DebugServer):
         self.__interface = _TallyInterface(Host,Port)
         self.Commands = {
             'State': {'Status': {'Live':self.__interface.State}},
-            'OnlineStatus':{'Status':{}}
+            'OnlineStatus':{'Status':{'Live':'Offline'}}
             }
 
 
@@ -4728,7 +4732,7 @@ class VolumeInterfaceWrapper(DebugServer):
             'Max':{'Status': {'Live':self.__interface.Max}},
             'Min':{'Status': {'Live':self.__interface.Min}},
             'SoftStart':{'Status': {'Live':self.__interface.SoftStart}},
-            'OnlineStatus':{'Status':{}}
+            'OnlineStatus':{'Status':{'Live':'Offline'}}
             }
 
 
@@ -5056,7 +5060,7 @@ class ProcessorDeviceWrapper(DebugServer):
             'CombinedWattage':{'Status': {'Live':combinedwattage}},
             'CombinedLoadState':{'Status': {'Live':combinedloadstate}},
             'SystemSettings':{'Status': {'Live':self.__interface.SystemSettings}},
-            'OnlineStatus':{'Status':{}},
+            'OnlineStatus':{'Status':{'Live':'Offline'}},
             'FirmwareVersion':{'Status':{'Live':self.__interface.FirmwareVersion}},
             'LinkLicenses':{'Status':{'Live':self.__interface.LinkLicenses}},
             'DeviceAlias':{'Status':{'Live':self.__interface.DeviceAlias}},
