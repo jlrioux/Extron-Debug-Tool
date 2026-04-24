@@ -37,11 +37,27 @@ WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN 
 
 
 ## Begin ControlScript Import --------------------------------------------------
-sys_allowed_flag = True
+sys_is_xi = True
 try:
     import sys,traceback
 except:
-    sys_allowed_flag = False
+    sys_is_xi = False
+from extronlib import Version as controlscript_api_version
+def check_api_version(minimum_api_version:str):
+    vparts = controlscript_api_version().split('.')
+    rparts = minimum_api_version.split('.')
+    while(len(rparts) < len(vparts)):rparts.append('0')
+    while(len(vparts) < len(rparts)):vparts.append('0')
+    processor_requires_xi = int(rparts[0]) < 3
+    if sys_is_xi != processor_requires_xi:return False
+    res = True
+    for i in range(len(rparts)):
+        if int(vparts[i]) < int(rparts[i]):
+            res = False
+            break
+    return res
+
+
 from extronlib import event as _event
 from extronlib.system import File
 from extronlib.device import UIDevice as _UIDevice
@@ -53,6 +69,9 @@ from extronlib.interface import (CircuitBreakerInterface as _CircuitBreakerInter
     EthernetServerInterfaceEx as _EthernetServerInterfaceEx, FlexIOInterface as _FlexIOInterface, IRInterface as _IRInterface, PoEInterface as _PoEInterface,
     RelayInterface as _RelayInterface, SerialInterface as _SerialInterface, SWACReceptacleInterface as _SWACReceptacleInterface, SWPowerInterface as _SWPowerInterface,
     VolumeInterface as _VolumeInterface,SPInterface as _SPInterface,TallyInterface as _TallyInterface)
+if sys_is_xi:
+    from extronlib.ui import StreamSource as _StreamSource
+    from extronlib.ui import Video as _Video
 from extronlib.ui import Button as _Button, Knob as _Knob, Label as _Label, Level as _Level, Slider as _Slider
 from extronlib.system import Timer as _Timer, Wait as _Wait, File as _File, SaveProgramLog as _SaveProgramLog, ProgramLog as _ProgramLog
 from datetime import datetime as _datetime
@@ -60,12 +79,14 @@ from datetime import timedelta as _timedelta
 import queue as _queue
 import json as _json
 import random as _random
-import copy
+import copy as _copy
+import re as _re
+import time as _time
 """
 Author: Jean-Luc Rioux
 Company: Valley Communications
-Last Modified Date: 2025-10-29
-Version: 1.9.0.1
+Last Modified Date: 2026-04-16
+Version: 1.10.0.0
 Minimum Pro Controller FW: 3.10
 Minimum Pro Q xi Controller FW: 1.09
 
@@ -230,8 +251,19 @@ Changelog:
     v 1.9.0.1 - tools.py modification
         - fixed a typo in the programlog save loop
         - corrected an issue with onlinestatus refreshing for device wrappers
+    v 1.10.0.0 - tools.py modification
+        - added new support for new UI elements StreamSource and Video for new TLP xx35 panels
+        - added new support for LED bars for new TLP xx35 panels
+        - added support for GVE servers with the new class "GVEServerWrapper"
+            - GVE can be fully implemented by config file OR added to running program
+                - fstartup and shutdown commands from gve must be added to running program if feature is needed.
+        - added 'SetKeepalive() to module interface wrappers
+            needs command and qualifier as parameters
+        - new tools exe release with these additions and the following bugfixes:
+            - print to trace displays properly when toggled in dark theme
+            - reconnect loop should no longer happen if processor reboots while debugging is active
+            - status dictionaries with mixed-type keys will no longer fail to alphabetically sort in status view
 """
-
 
 
 
@@ -320,16 +352,6 @@ class status_report():
 
 
 
-
-
-
-
-
-
-
-
-
-
 '''
 saves a dictionary of values (basic types only) to file as a json object, allows for manipulation of them and recovery.
 the optional parameter 'auto_sync_time' allows for saving of the variables to file automatically on a regular interval. (in seconds)
@@ -402,22 +424,22 @@ class NonvolatileValues():
                     try:
                         values = _json.load(f)
                     except Exception as e:
-                        if sys_allowed_flag:
+                        if sys_is_xi:
                             err_msg = 'EXCEPTION:{}:{}:{}:deleting corrupted file'.format(__class__.__name__,sys._getframe().f_code.co_name,traceback.format_exc())
                         else:
                             err_msg = 'EXCEPTION:{}:{}:{}:deleting corrupted file'.format(__class__.__name__,'ReadValues',e)
                         print(err_msg)
-                        DebugPrint.Print(err_msg)
+                        #DebugPrint.Print(err_msg)
                         _ProgramLog(err_msg)
                         _File.DeleteFile(self.__filename)
                     f.close()
         except Exception as e:
-            if sys_allowed_flag:
-                err_msg = 'EXCEPTION:{}:{}:{}:deleting corrupted file'.format(__class__.__name__,sys._getframe().f_code.co_name,traceback.format_exc())
+            if sys_is_xi:
+                err_msg = 'EXCEPTION:{}:{}:{}:failed to read file'.format(__class__.__name__,sys._getframe().f_code.co_name,traceback.format_exc())
             else:
-                err_msg = 'EXCEPTION:{}:{}:{}:deleting corrupted file'.format(__class__.__name__,'ReadValues',e)
+                err_msg = 'EXCEPTION:{}:{}:{}:failed to read file'.format(__class__.__name__,'ReadValues',e)
             print(err_msg)
-            DebugPrint.Print(err_msg)
+            #DebugPrint.Print(err_msg)
             _ProgramLog(err_msg)
             values = {}
         self.values = values
@@ -444,7 +466,7 @@ class NonvolatileValues():
                     try:
                         _json.dump(self.values,f)
                     except Exception as e:
-                        if sys_allowed_flag:
+                        if sys_is_xi:
                             err_msg = 'EXCEPTION:{}:{}:{}'.format(__class__.__name__,sys._getframe().f_code.co_name,traceback.format_exc())
                         else:
                             err_msg = 'EXCEPTION:{}:{}:{}'.format(__class__.__name__,'SaveValues',e)
@@ -453,7 +475,7 @@ class NonvolatileValues():
                         _ProgramLog(err_msg)
                     f.close()
         except Exception as e:
-            if sys_allowed_flag:
+            if sys_is_xi:
                 err_msg = 'EXCEPTION:{}:{}:{}:deleting corrupted file'.format(__class__.__name__,sys._getframe().f_code.co_name,traceback.format_exc())
             else:
                 err_msg = 'EXCEPTION:{}:{}:{}:deleting corrupted file'.format(__class__.__name__,'ReadValues',e)
@@ -548,8 +570,6 @@ class PasswordManager():
 
 
 
-
-
 '''
 Simply import this file into your main file and call 'EnableProgramLogSaver to enable the logging.
 This class creates one log file per boot and updates that particular log file whenever the program log changes. (checks for changes every 1 minute)
@@ -575,7 +595,7 @@ class ProgramLogSaver():
                     try:
                         log = f.read()
                     except Exception as e:
-                        if sys_allowed_flag:
+                        if sys_is_xi:
                             err_msg = 'EXCEPTION:{}:{}:{}'.format(__class__.__name__,sys._getframe().f_code.co_name,traceback.format_exc())
                         else:
                             err_msg = 'EXCEPTION:{}:{}:{}'.format(__class__.__name__,'__readdummyprogramlog',e)
@@ -584,7 +604,7 @@ class ProgramLogSaver():
                         _ProgramLog(err_msg)
                     f.close()
         except Exception as e:
-            if sys_allowed_flag:
+            if sys_is_xi:
                 err_msg = 'EXCEPTION:{}:{}:{}:deleting corrupted file'.format(__class__.__name__,sys._getframe().f_code.co_name,traceback.format_exc())
             else:
                 err_msg = 'EXCEPTION:{}:{}:{}:deleting corrupted file'.format(__class__.__name__,'ReadValues',e)
@@ -600,7 +620,7 @@ class ProgramLogSaver():
                 if f:
                     _SaveProgramLog(f)
         except Exception as e:
-            if sys_allowed_flag:
+            if sys_is_xi:
                 err_msg = 'EXCEPTION:{}:{}:{}:deleting corrupted file'.format(__class__.__name__,sys._getframe().f_code.co_name,traceback.format_exc())
             else:
                 err_msg = 'EXCEPTION:{}:{}:{}:deleting corrupted file'.format(__class__.__name__,'ReadValues',e)
@@ -614,7 +634,7 @@ class ProgramLogSaver():
                 if f:
                     _SaveProgramLog(f)
         except Exception as e:
-            if sys_allowed_flag:
+            if sys_is_xi:
                 err_msg = 'EXCEPTION:{}:{}:{}:deleting corrupted file'.format(__class__.__name__,sys._getframe().f_code.co_name,traceback.format_exc())
             else:
                 err_msg = 'EXCEPTION:{}:{}:{}:deleting corrupted file'.format(__class__.__name__,'ReadValues',e)
@@ -637,13 +657,6 @@ class ProgramLogSaver():
     def DisableProgramLogSaver():
         if hasattr(ProgramLogSaver,'__save_timer'):
             ProgramLogSaver.__save_timer.Stop()
-
-
-
-
-
-
-
 
 
 
@@ -698,7 +711,7 @@ class DebugFileLogSaver():
             usage = DebugFileLogSaver.__processor_device.UserUsage
         except Exception as e:
             DebugFileLogSaver.__deleteoldestlog()
-            if sys_allowed_flag:
+            if sys_is_xi:
                 err_msg = 'EXCEPTION:{}:{}:{}'.format(__class__.__name__,sys._getframe().f_code.co_name,traceback.format_exc())
             else:
                 err_msg = 'EXCEPTION:{}:{}:{}'.format(__class__.__name__,'__deleteoldestlogtimer',e)
@@ -740,7 +753,7 @@ class DebugFileLogSaver():
                                 try:
                                     f.write('\n'.join(DebugFileLogSaver.__cur_logs))
                                 except Exception as e:
-                                    if sys_allowed_flag:
+                                    if sys_is_xi:
                                         err_msg = 'EXCEPTION:{}:{}:{}'.format(__class__.__name__,sys._getframe().f_code.co_name,traceback.format_exc())
                                     else:
                                         err_msg = 'EXCEPTION:{}:{}:{}'.format(__class__.__name__,'__checklogloop',e)
@@ -749,7 +762,7 @@ class DebugFileLogSaver():
                                     _ProgramLog(err_msg)
                                 f.close()
                     except Exception as e:
-                        if sys_allowed_flag:
+                        if sys_is_xi:
                             err_msg = 'EXCEPTION:{}:{}:{}:deleting corrupted file'.format(__class__.__name__,sys._getframe().f_code.co_name,traceback.format_exc())
                         else:
                             err_msg = 'EXCEPTION:{}:{}:{}:deleting corrupted file'.format(__class__.__name__,'ReadValues',e)
@@ -830,7 +843,7 @@ NOTES:
     - In constructor, set auto_maintain_connection to False if you wish to handle network connections yourself.
     - In constructor, set time_between_commands to an integer > 0 to force command pacing to prevent device from choking on input. Do this after subscribing to feedback for the device.
 """
-class DebugServer():    #class code
+class DebugServer():
     __debug_server = None #type:_EthernetServerInterfaceEx
     __debug_instances = {'options':{}}
     __debug_server_buffer = ''
@@ -839,13 +852,72 @@ class DebugServer():    #class code
     __debug_server_logged_in = False
     __delim = '~END~\x0a'
     __debug_busy = False
-    __debug_send_interface_list_timer = None
-    __debug_options = {}
-    __debug_nv_options = NonvolatileValues('DebugNVRAM.dat')
     __debug_server_listen_busy = False
     __debug_server_error = None
+    __gve_instance = None #type:GVEInterfaceWrapper
+    __gve_data = {} #type:dict[str,dict]
+    __gve_check_done = False
+    __gve_polling_timer = None #type:_Timer
+    __gve_polling_list = [] #type:list
 
 
+    __debug_options = {}
+    __debug_nv_options = NonvolatileValues('DebugNVRAM.dat')
+    def __init_debug_options(values):
+        if values:
+            if 'options' in values:
+                DebugServer.__debug_options = values['options']
+    __debug_nv_options.AddSyncValuesFunction(__init_debug_options)
+    @_Wait(0)
+    def w():DebugServer.__debug_nv_options.ReadValues()
+
+    def __init_gve_from_config():
+        DebugServer.__gve_check_done = True
+        File.ChangeDir('/')
+        dirlist = File.ListDir()
+        file_count = 0
+        for filename in dirlist:
+            if 'gve.json' in filename:
+                break
+        f = None #type:_File
+        values = {}
+        try:
+            with _File(filename,'r') as f:
+                if f:
+                    try:
+                        values = _json.load(f)
+                    except Exception as e:
+                        if sys_is_xi:
+                            err_msg = 'EXCEPTION:{}:{}:{}'.format(DebugServer.__name__,sys._getframe().f_code.co_name,traceback.format_exc())
+                        else:
+                            err_msg = 'EXCEPTION:{}:{}:{}'.format(DebugServer.__name__,'GVE INIT',e)
+                    f.close()
+        except Exception as e:
+            if sys_is_xi:
+                err_msg = 'EXCEPTION:{}:{}:{}'.format(DebugServer.__name__,sys._getframe().f_code.co_name,traceback.format_exc())
+            else:
+                err_msg = 'EXCEPTION:{}:{}:{}'.format(DebugServer.__name__,'GVE INIT',e)
+            print(err_msg)
+        DebugServer.__gve_data = values
+        if values:
+            if 'Server Information' in values:
+                server_info = values['Server Information']
+                if 'Hostname' not in server_info or 'IPPort' not in server_info or 'Interface' not in server_info or 'Host Device Alias' not in server_info:
+                    err_msg = 'EXCEPTION:Server Information is missing data'.format(DebugServer.__name__,'GVE INIT')
+                    print(err_msg)
+                    return
+                hostdevice = None
+                try:
+                    hostdevice = _ProcessorDevice(server_info['Host Device Alias'])
+                except:
+                    try:
+                        hostdevice = _UIDevice(server_info['Host Device Alias'])
+                    except:
+                        err_msg = 'EXCEPTION:Unable to define GVE Host Device:{}'.format(server_info['Host Device Alias'])
+                        print(err_msg)
+                        return
+                if hostdevice is not None:
+                    DebugServer.__gve_instance = GVEInterfaceWrapper(server_info['Hostname'],hostdevice,int(server_info['IPPort']),server_info['Interface'])
 
     def __fn_debug_server_listen_timer(timer,count):
         if DebugServer.__debug_server_listen_busy:return
@@ -877,15 +949,8 @@ class DebugServer():    #class code
             cur += 1
         return(True)
 
-    def __debug_nv_sync_function():
-        def f(values:'dict'):
-            if 'options' in values:
-                DebugServer.__debug_options = values['options']
-        DebugServer.__debug_nv_options.AddSyncValuesFunction(f)
-        DebugServer.__debug_nv_options.ReadValues()
 
     def EnableDebugServer(Interface='AVLAN'):
-        DebugServer.__debug_nv_sync_function()
         if not DebugServer.__debug_server:
             DebugServer.__debug_server = _EthernetServerInterfaceEx(1988,'TCP',Interface=Interface,MaxClients=5)
             __debug_res = DebugServer.__debug_server.StartListen()
@@ -933,6 +998,7 @@ class DebugServer():    #class code
                             DebugServer.__send_interface_list(None,'next',keys)
                     elif DebugServer.__debug_server_password in temp:
                         if DebugServer.__check_client_version(temp):
+                            _time.sleep(1)
                             DebugServer.__send_interface_list(None,'start')
                             DebugServer.__debug_server_logged_in = True
                         else:
@@ -1000,6 +1066,16 @@ class DebugServer():    #class code
             DebugServer.__debug_busy = True
             key = found_key
             result[key] = {}
+            if 'name' not in instances[key]:
+                #system is not yet ready, send error to client
+                _ProgramLog('DebugTool:Failed to register Device{}'.format(key))
+                if server:
+                    for client in server.Clients:
+                        try:
+                            client.Send('~RegisterDevicesFailed~:RETRY')
+                        except Exception as e:
+                            _ProgramLog(e)
+                return
             result[key]['name'] = instances[key]['name']
             result[key]['options'] = instances[key]['options']
             result[key]['communication'] = {}
@@ -1013,7 +1089,7 @@ class DebugServer():    #class code
                 result[key]['communication']['mode'] = str(interface.Mode)
                 result[key]['communication']['port'] = str(interface.Port)
                 result[key]['communication']['baud'] = '{},{},{},{}'.format(str(interface.Baud),str(interface.Data),str(interface.Parity),str(interface.Stop))
-            elif comm_type in ['SerialOverEthernet','Ethernet','SSH']:
+            elif comm_type in ['SerialOverEthernet','Ethernet','SSH','GVE']:
                 result[key]['status'] = instances[key]['instance'].device.Commands
                 result[key]['communication']['host'] = instances[key]['instance'].GetHostname()
                 result[key]['communication']['mode'] = str(interface.Protocol)
@@ -1101,6 +1177,16 @@ class DebugServer():    #class code
                 result[key]['communication']['alias'] = str(interface.DeviceAlias)
             elif comm_type == 'VirtualUI':
                 result[key]['status'] = instances[key]['instance'].Commands
+            elif comm_type == 'StreamSource':
+                result[key]['status'] = instances[key]['instance'].Commands
+                result[key]['communication']['alias'] = str(interface.Name)
+                result[key]['communication']['host'] = str(interface.URI)
+                result[key]['communication']['port'] = str(interface.Port)
+                result[key]['communication']['credentials'] = str(interface.Credentials)
+            elif comm_type == 'GVE':
+                result[key]['status'] = instances[key]['instance'].Commands
+                result[key]['communication']['host'] = str(interface.Hostname)
+                result[key]['communication']['port'] = str(interface.IPPort)
             elif comm_type == 'Print':
                 result[key]['status'] = instances[key]['instance'].Commands
             result['num_devices'] = len(instances)
@@ -1109,15 +1195,17 @@ class DebugServer():    #class code
                 for client in server.Clients:
                     try:
                         client.Send('~RegisterDevices~:{}{}'.format(result2,delim))
-                    except:
-                        pass
+                    except Exception as e:
+                        print(e)
+                        #client.Disconnect()
         else:
             if server:
                 for client in server.Clients:
                     try:
                         client.Send('~RegisterDevicesComplete~{}'.format(delim))
-                    except:
-                        pass
+                    except Exception as e:
+                        print(e)
+                        #client.Disconnect()
             DebugServer.__debug_busy = False
     def __send_interface_status(self,listening_port:'int',update:'dict'):
         to_send = {str(listening_port):update}
@@ -1145,9 +1233,11 @@ class DebugServer():    #class code
                 except:
                     pass
     def __add_instance(self,listening_port:'int',instance:'object',friendly_name:'str',instance_type:'str'):
-        listening_port = int(listening_port)
         if listening_port not in self._DebugServer__debug_instances.keys():
+            listening_port = int(listening_port)
             self._DebugServer__debug_instances[listening_port] = {}
+            if not self._DebugServer__gve_check_done and instance_type not in ['Print','GVE','VirtualUI']:
+                DebugServer.__init_gve_from_config()
             self._DebugServer__debug_instances[listening_port]['name'] = friendly_name
             self._DebugServer__debug_instances[listening_port]['instance'] = instance
             self._DebugServer__debug_instances[listening_port]['type'] = instance_type
@@ -1163,10 +1253,13 @@ class DebugServer():    #class code
             DebugServer.__debug_instances[listening_port]['instance'].HandleOptions(None,'Option({})'.format(_json.dumps(temp)))
             if not DebugServer.__debug_busy:
                 self._DebugServer__send_interface_list('next')
+            if __class__.__gve_instance:
+                __class__.__register_device_in_gve(friendly_name,instance,instance_type)
     def __create_listening_port(self):
         return 1+len(self._DebugServer__debug_instances)
     def __update_nv_option(self,listening_port:'int',option:'str',value):
         listening_port = str(listening_port)
+        print('setting nv option in tools:{} {} {}'.format(listening_port,option,value))
         if listening_port not in DebugServer.__debug_options:
             DebugServer.__debug_options[listening_port] = {}
         DebugServer.__debug_options[listening_port][option] = value
@@ -1175,8 +1268,10 @@ class DebugServer():    #class code
         DebugServer.__debug_nv_options.SaveValues()
     def __get_nv_option(self,listening_port):
         try:
-            print_to_trace_value = self._DebugServer__debug_options[str(listening_port)]['print to trace']
-        except:
+            print_to_trace_value = DebugServer.__debug_nv_options.GetValue('options')[str(listening_port)]['print to trace']
+            #print_to_trace_value = DebugServer.__debug_options[str(listening_port)]['print to trace']
+        except Exception as e:
+            print('nv option in tools failed:{}:{}'.format(listening_port,e))
             print_to_trace_value = True
         return print_to_trace_value
     def __get_wrapped_device(self,device):
@@ -1190,6 +1285,118 @@ class DebugServer():    #class code
             return eBUSDeviceWrapper(device.Host,device.DeviceAlias)
         if type(device) == _UIDevice:#isinstance(device,_UIDevice):
             return UIDeviceWrapper(device.DeviceAlias)
+    def __get_wrapped_device_from_friendly_name(self,friendly_name):
+        instances = self._DebugServer__debug_instances
+        for listening_port in instances:
+            if 'name' in instances[listening_port]:
+                if instances[listening_port]['name'] == friendly_name:
+                    return instances[listening_port]['instance']
+        return None
+    def __register_device_in_gve(friendly_name,instance,instance_type):
+        if instance_type in ['GVE','Print','VirtualUI']:return
+        for device_key in __class__.__gve_data:
+            key_parts = device_key.split(':')
+            if friendly_name == key_parts[0]:
+                gve_data = __class__.__gve_data[device_key]
+                if hasattr(instance,'Commands'):commands = instance.Commands
+                elif hasattr(instance.device,'Commands'):commands = instance.device.Commands
+                else:return
+                # for hardware, there are no qualifier field used
+                for cmd in ['OnlineStatus','Online','OfflineStatus','Offline','ConnectionStatus','Power']:
+                    if cmd in commands:
+                        f = __class__.__make_gve_device_handler(gve_data['GVE Device ID'],'Connection',cmd)
+                        instance.SubscribeStatus(cmd,f)
+                        try: #this may not yet be instantiated, don't worry if it fails
+                            __class__.__gve_instance.SendStatus(gve_data['GVE Device ID'],'Connection',commands[cmd]['Status']['Live'])
+                        except:pass
+                # device modules use connectionstatus with a qualifier
+                for cmd in ['ConnectionStatus']:
+                    if cmd in commands:
+                        f = __class__.__make_gve_device_handler(gve_data['GVE Device ID'],'Connection',cmd)
+                        instance.SubscribeStatus(cmd,None,f)
+                        try: #this may not yet be instantiated, don't worry if it fails
+                            __class__.__gve_instance.SendStatus(gve_data['GVE Device ID'],'Connection','Unknown')
+                        except:pass
+                for cmd in ['Power']:
+                    if len(key_parts) == 1:qualifier_dict = None
+                    else:qualifier_dict = {'Device ID':key_parts[1]}
+                    value_map = {'On':'On','Off':'Off','Warming':'Warming','Cooling':'Cooling','Warming Up':'Warming','Cooling Down':'Cooling'}
+                    if cmd in commands:
+                        f = __class__.__make_gve_device_handler(gve_data['GVE Device ID'],'Power',cmd,qualifier_dict,value_map)
+                        instance.SubscribeStatus(cmd,qualifier_dict,f)
+                        __class__.__gve_instance.SendStatus(gve_data['GVE Device ID'],'Power','Uknown')
+                        fc = __class__.__make_gve_command_handler(gve_data['GVE Device ID'],'Power',instance,cmd,qualifier_dict)
+                        __class__.__gve_instance.SubscribeStatus('ReceiveGVECommand',fc)
+                        if 'Poll Interval' in gve_data:__class__.__gve_polling_list.append([instance,cmd,qualifier_dict,int(gve_data['Poll Interval'])])
+                for cmd in ['Standby','StandbyState','StandbyStatus']:
+                    if len(key_parts) == 1:qualifier_dict = None
+                    else:qualifier_dict = {'Device ID':key_parts[1]}
+                    value_map = {'On':'Off','Off':'On'}
+                    if cmd in commands:
+                        f = __class__.__make_gve_device_handler(gve_data['GVE Device ID'],'Power',cmd,qualifier_dict,value_map)
+                        instance.SubscribeStatus(cmd,qualifier_dict,f)
+                        __class__.__gve_instance.SendStatus(gve_data['GVE Device ID'],'Power','Uknown')
+                        c_value_map = {'On':'Off','Off':'On'}
+                        fc = __class__.__make_gve_command_handler(gve_data['GVE Device ID'],'Power',instance,cmd,qualifier_dict,c_value_map)
+                        __class__.__gve_instance.SubscribeStatus('ReceiveGVECommand',fc)
+                        if 'Poll Interval' in gve_data:__class__.__gve_polling_list.append([instance,cmd,qualifier_dict,int(gve_data['Poll Interval'])])
+                if 'Lamp Status' in gve_data:
+                    lamp_count = 0
+                    for lamp_status_data in gve_data['Lamp Status']:
+                        lamp_count += 1
+                        command = lamp_status_data['Command']
+                        gve_command = 'Lamp {} Hours'.format(lamp_count)
+                        if len(key_parts) == 1:qualifier_dict = {}
+                        else:qualifier_dict = {'Device ID':key_parts[1]}
+                        if 'Qualifier' in lamp_status_data:
+                            if qualifier_dict == None: qualifier_dict = lamp_status_data['Qualifier']
+                            else: qualifier_dict.update(lamp_status_data['Qualifier'])
+                        if command in commands:
+                            f = __class__.__make_gve_device_handler(gve_data['GVE Device ID'],gve_command,command)
+                            instance.SubscribeStatus(command,qualifier_dict,f)
+                            if 'Poll Interval' in lamp_status_data:__class__.__gve_polling_list.append([instance,command,qualifier_dict,int(lamp_status_data['Poll Interval'])])
+                if 'Custom Status' in gve_data:
+                    for custom_status_data in gve_data['Custom Status']:
+                        command = custom_status_data['Command']
+                        qualifier_dict = None
+                        if 'Qualifier' in custom_status_data:qualifier_dict = custom_status_data['Qualifier']
+                        value_map = {}
+                        if 'Value Map' in custom_status_data:value_map = custom_status_data['Value Map']
+                        if command in commands:
+                            f = __class__.__make_gve_device_handler(custom_status_data['GVE Device ID'],'Source',command,qualifier_dict,value_map)
+                            instance.SubscribeStatus(command,qualifier_dict,f)
+                            if 'Poll Interval' in custom_status_data:__class__.__gve_polling_list.append([instance,command,qualifier_dict,int(custom_status_data['Poll Interval'])])
+            if __class__.__gve_polling_timer == None and len(__class__.__gve_polling_list)>0:
+                __class__.__gve_polling_timer = _Timer(1,__class__.__make_gve_polling_timer())
+    def __make_gve_device_handler(device_id,gve_command,command,qualifier_dict=None,value_map={}):
+        def f(command,value,qualifier):
+            if qualifier_dict and qualifier:
+                for key in qualifier_dict:
+                    if key not in qualifier:return
+                    if qualifier[key] != qualifier_dict[key]:return
+            if value in value_map: adj_value = value_map[value]
+            else: adj_value = value
+            __class__.__gve_instance.SendStatus(device_id,gve_command,adj_value)
+        return f
+    def __make_gve_command_handler(device_id,gve_command,instance,command,qualifier_dict=None,value_map={}):
+        def f(gve_object,details):
+            #details are (device_id,command,parameter)
+            if str(device_id) != str(details[0]):return
+            if gve_command != details[1]:return
+            if details[2] in value_map: adj_value = value_map[details[2]]
+            else: adj_value = details[2]
+            instance.Set(command,adj_value,qualifier_dict)
+        return f
+    def __make_gve_polling_timer():
+        def t(timer,count):
+            for item in __class__.__gve_polling_list:
+                instance = item[0]
+                command = item[1]
+                qualifier = item[2]
+                poll_interval = item[3]
+                if count % poll_interval == 0:
+                    instance.Update(command,qualifier)
+        return t
 
 class _PrintWrapper(DebugServer):
     def __init__(self,listening_port:'int'=0,friendly_name:'str'=''):
@@ -1249,7 +1456,7 @@ class _PrintWrapper(DebugServer):
             try:
                 temp_dict = _json.loads(temp)
             except Exception as e:
-                if sys_allowed_flag:
+                if sys_is_xi:
                     err_msg = 'EXCEPTION:{}:{}:{}:Option:{}'.format(__class__.__name__,sys._getframe().f_code.co_name,self.__friendly_name,traceback.format_exc())
                 else:
                     err_msg = 'EXCEPTION:{}:{}:{}:{}'.format(__class__.__name__,self.__friendly_name,'HandleOptions',e)
@@ -1291,6 +1498,10 @@ class __InterfaceWrapper(DebugServer):
         self.__sendandwait_busy = False
         self.__commands_to_send = [] #type:list[str]
         self.__t_command_pacer = None #type:_Timer
+        self.__auto_keepalive = False
+        self.__t_keepalive = None #type:_Timer
+        self.__keepalive_command = None
+        self.__keepalive_qualifier = None
         self.__interface_allow_connection = False
         self.__interface_connect_status = ''
         self.__auto_maintain_connection = auto_maintain_connection
@@ -1466,7 +1677,7 @@ class __InterfaceWrapper(DebugServer):
         try:
             self.__subscriber.NewStatus(command,value,qualifier)
         except Exception as e:
-            if sys_allowed_flag:
+            if sys_is_xi:
                 err_msg = 'EXCEPTION:{}:NewStatus:{},{},{}:{}:{}'.format(__class__.__name__,command,value,qualifier,self.__friendly_name,traceback.format_exc())
             else:
                 err_msg = 'EXCEPTION:{}:{}:{}:{},{},{}:{}'.format(__class__.__name__,self.__friendly_name,'NewStatus',command,value,qualifier,e)
@@ -1481,7 +1692,7 @@ class __InterfaceWrapper(DebugServer):
         try:
             method = getattr(self.DeviceModule, 'Set%s' % command)
         except Exception as e:
-            if sys_allowed_flag:
+            if sys_is_xi:
                 err_msg = 'EXCEPTION:{}:Set:{}:{}'.format(__class__.__name__,self.__friendly_name,traceback.format_exc())
             else:
                 err_msg = 'EXCEPTION:{}:{}:{}::{}:{}:{}{}'.format(__class__.__name__,self.__friendly_name,'Set',command,value,qualifier,e)
@@ -1499,7 +1710,7 @@ class __InterfaceWrapper(DebugServer):
                     if self.__interface.Protocol == 'UDP':
                         method(value, qualifier)
             except Exception as e:
-                if sys_allowed_flag:
+                if sys_is_xi:
                     err_msg = 'EXCEPTION:{}:Set:{}:{}'.format(__class__.__name__,self.__friendly_name,traceback.format_exc())
                 else:
                     err_msg = 'EXCEPTION:{}:{}:{}:{}'.format(__class__.__name__,self.__friendly_name,'Set',e)
@@ -1512,7 +1723,7 @@ class __InterfaceWrapper(DebugServer):
         try:
             method = getattr(self.DeviceModule, 'Update%s' % command)
         except Exception as e:
-            if sys_allowed_flag:
+            if sys_is_xi:
                 err_msg = 'EXCEPTION:{}:Update:{}:{}'.format(__class__.__name__,self.__friendly_name,traceback.format_exc())
             else:
                 err_msg = 'EXCEPTION:{}:{}:{}:{}:{}:{}'.format(__class__.__name__,self.__friendly_name,'Update',command,qualifier,e)
@@ -1530,7 +1741,7 @@ class __InterfaceWrapper(DebugServer):
                     if self.__interface.Protocol == 'UDP':
                         method(None, qualifier)
             except Exception as e:
-                if sys_allowed_flag:
+                if sys_is_xi:
                     err_msg = 'EXCEPTION:{}:Update:{}:{}'.format(__class__.__name__,self.__friendly_name,traceback.format_exc())
                 else:
                     err_msg = 'EXCEPTION:{}:{}:{}:{}'.format(__class__.__name__,self.__friendly_name,'Update',e)
@@ -1556,7 +1767,7 @@ class __InterfaceWrapper(DebugServer):
             self.__printToServer('>>{0}'.format(commandstring))
             self.__printToLog(self.__friendly_name,'API,To Device',commandstring)
             ret = self.__interface.SendAndWait(commandstring,timeout,**args)
-            ret_copy = copy.copy(ret)
+            ret_copy = _copy.copy(ret)
             if ret:
                 for function in self.__receiveBufferCallbacks:
                     function(self.__interface,ret_copy)
@@ -1600,7 +1811,7 @@ class __InterfaceWrapper(DebugServer):
         try:
             self.device.Set(command,value,qualifier)
         except Exception as e:
-            if sys_allowed_flag:
+            if sys_is_xi:
                 err_msg = 'EXCEPTION:{}:{}:{}:{}'.format(__class__.__name__,sys._getframe().f_code.co_name,self.__friendly_name,traceback.format_exc())
             else:
                 err_msg = 'EXCEPTION:{}:{}:{}:{}'.format(__class__.__name__,self.__friendly_name,'Set',e)
@@ -1615,7 +1826,7 @@ class __InterfaceWrapper(DebugServer):
         try:
             self.device.Update(command,qualifier)
         except Exception as e:
-            if sys_allowed_flag:
+            if sys_is_xi:
                 err_msg = 'EXCEPTION:{}:{}:{}:{}'.format(__class__.__name__,sys._getframe().f_code.co_name,self.__friendly_name,traceback.format_exc())
             else:
                 err_msg = 'EXCEPTION:{}:{}:{}:{}'.format(__class__.__name__,self.__friendly_name,'Update',e)
@@ -1626,7 +1837,7 @@ class __InterfaceWrapper(DebugServer):
         try:
             value = self.device.ReadStatus(command,qualifier)
         except Exception as e:
-            if sys_allowed_flag:
+            if sys_is_xi:
                 err_msg = 'EXCEPTION:{}:{}:{}:{}'.format(__class__.__name__,sys._getframe().f_code.co_name,self.__friendly_name,traceback.format_exc())
             else:
                 err_msg = 'EXCEPTION:{}:{}:{}:{}'.format(__class__.__name__,self.__friendly_name,'ReadStatus',e)
@@ -1639,7 +1850,7 @@ class __InterfaceWrapper(DebugServer):
             try:
                 self.device.SubscribeStatus(command,qualifier,callback)
             except Exception as e:
-                if sys_allowed_flag:
+                if sys_is_xi:
                     err_msg = 'EXCEPTION:{}:{}:{}:{}'.format(__class__.__name__,sys._getframe().f_code.co_name,self.__friendly_name,traceback.format_exc())
                 else:
                     err_msg = 'EXCEPTION:{}:{}:{}:{}'.format(__class__.__name__,self.__friendly_name,'SubscribeStatus',e)
@@ -1647,8 +1858,22 @@ class __InterfaceWrapper(DebugServer):
                 DebugPrint.Print(err_msg)
                 _ProgramLog(err_msg)
 
+    def SetKeepAlive(self,command:'str',qualifier=None,polling_interval=10):
+        self.__keepalive_command = command
+        self.__keepalive_qualifier = qualifier
+        if not self.__auto_keepalive:
+            self.__auto_keepalive = True
+            def fn_timer_keepalive(timer,count):
+                if self.device:
+                    if ('Ethernet' in self.device.ConnectionType and self.__interface_connect_status == 'Connected') or ('Serial' == self.device.ConnectionType):
+                        self.Update(self.__keepalive_command,self.__keepalive_qualifier)
+            self.__t_keepalive = _Timer(polling_interval,fn_timer_keepalive)
+
+
+
+
     def addReceiveBufferCallback(self,function):
-        self.receiveBuff__receiveBufferCallbackserCallbacks.append(function)
+        self.__receiveBufferCallbacks.append(function)
     def removeReceiveBufferCallback(self,function):
         self.__receiveBufferCallbacks.remove(function)
 
@@ -1674,7 +1899,7 @@ class __InterfaceWrapper(DebugServer):
             try:
                 temp_dict = _json.loads(temp)
             except Exception as e:
-                if sys_allowed_flag:
+                if sys_is_xi:
                     err_msg = 'EXCEPTION:{}:{}:{}:Set:{}'.format(__class__.__name__,sys._getframe().f_code.co_name,self.__friendly_name,traceback.format_exc())
                 else:
                     err_msg = 'EXCEPTION:{}:{}:{}:{}'.format(__class__.__name__,self.__friendly_name,'HandleRecieveFromServer:Set',e)
@@ -1709,7 +1934,7 @@ class __InterfaceWrapper(DebugServer):
             try:
                 temp_dict = _json.loads(temp)
             except Exception as e:
-                if sys_allowed_flag:
+                if sys_is_xi:
                     err_msg = 'EXCEPTION:{}:{}:{}:Update:{}'.format(__class__.__name__,sys._getframe().f_code.co_name,self.__friendly_name,traceback.format_exc())
                 else:
                     err_msg = 'EXCEPTION:{}:{}:{}:{}'.format(__class__.__name__,self.__friendly_name,'HandleRecieveFromServer:Update',e)
@@ -1736,7 +1961,7 @@ class __InterfaceWrapper(DebugServer):
             try:
                 temp_dict = _json.loads(temp)
             except Exception as e:
-                if sys_allowed_flag:
+                if sys_is_xi:
                     err_msg = 'EXCEPTION:{}:{}:{}:WriteStatus:{}'.format(__class__.__name__,sys._getframe().f_code.co_name,self.__friendly_name,traceback.format_exc())
                 else:
                     err_msg = 'EXCEPTION:{}:{}:{}:{}'.format(__class__.__name__,self.__friendly_name,'HandleRecieveFromServer:WriteStatus',e)
@@ -1786,7 +2011,7 @@ class __InterfaceWrapper(DebugServer):
             try:
                 temp_dict = _json.loads(temp)
             except Exception as e:
-                if sys_allowed_flag:
+                if sys_is_xi:
                     err_msg = 'EXCEPTION:{}:{}:{}:Option:{}'.format(__class__.__name__,sys._getframe().f_code.co_name,self.__friendly_name,traceback.format_exc())
                 else:
                     err_msg = 'EXCEPTION:{}:{}:{}:{}'.format(__class__.__name__,self.__friendly_name,'Option',e)
@@ -1853,7 +2078,7 @@ class __InterfaceWrapper(DebugServer):
                 Subscribe = self.mod.Subscription[command]
                 Method = Subscribe['method']
 
-                if qualifier:
+                if qualifier and 'Parameters' in Command:
                     for Parameter in Command['Parameters']:
                         try:
                             Method = Method[qualifier[Parameter]]
@@ -2010,6 +2235,7 @@ class SPIModuleWrapper(__InterfaceWrapper):
             spi = spi.Device
         interface = SPIClass(spi)
         self._InterfaceWrapper__fn_device_init('SPI',interface) #spi modules use serial type apparently
+
 class CircuitBreakerInterfaceWrapper(DebugServer):
     instances = {} #type:dict[str,CircuitBreakerInterfaceWrapper]
     def __new__(cls,Host:'object',Port:'str'='CBR1',listening_port:'int'=0,friendly_name:'str'=''):
@@ -2060,7 +2286,7 @@ class CircuitBreakerInterfaceWrapper(DebugServer):
                 try:
                     f(interface,state)
                 except Exception as e:
-                    if sys_allowed_flag:
+                    if sys_is_xi:
                         err_msg = 'EXCEPTION:{}:{}:{}:{}'.format(__class__.__name__,sys._getframe().f_code.co_name,self.__friendly_name,traceback.format_exc())
                     else:
                         err_msg = 'EXCEPTION:{}:{}:{}:{}'.format(__class__.__name__,self.__friendly_name,'Online',e)
@@ -2080,7 +2306,7 @@ class CircuitBreakerInterfaceWrapper(DebugServer):
                 try:
                     f(interface,state)
                 except Exception as e:
-                    if sys_allowed_flag:
+                    if sys_is_xi:
                         err_msg = 'EXCEPTION:{}:{}:{}:{}'.format(__class__.__name__,sys._getframe().f_code.co_name,self.__friendly_name,traceback.format_exc())
                     else:
                         err_msg = 'EXCEPTION:{}:{}:{}:{}'.format(__class__.__name__,self.__friendly_name,'Offline',e)
@@ -2100,7 +2326,7 @@ class CircuitBreakerInterfaceWrapper(DebugServer):
                 try:
                     f(interface,state)
                 except Exception as e:
-                    if sys_allowed_flag:
+                    if sys_is_xi:
                         err_msg = 'EXCEPTION:{}:{}:{}:{}'.format(__class__.__name__,sys._getframe().f_code.co_name,self.__friendly_name,traceback.format_exc())
                     else:
                         err_msg = 'EXCEPTION:{}:{}:{}:{}'.format(__class__.__name__,self.__friendly_name,'StateChanged',e)
@@ -2166,7 +2392,7 @@ class CircuitBreakerInterfaceWrapper(DebugServer):
             try:
                 temp_dict = _json.loads(temp)
             except Exception as e:
-                if sys_allowed_flag:
+                if sys_is_xi:
                     err_msg = 'EXCEPTION:{}:{}:{}:Option:{}'.format(__class__.__name__,sys._getframe().f_code.co_name,self.__friendly_name,traceback.format_exc())
                 else:
                     err_msg = 'EXCEPTION:{}:{}:{}:{}'.format(__class__.__name__,self.__friendly_name,'Option',e)
@@ -2239,7 +2465,7 @@ class ContactInterfaceWrapper(DebugServer):
                 try:
                     f(interface,state)
                 except Exception as e:
-                    if sys_allowed_flag:
+                    if sys_is_xi:
                         err_msg = 'EXCEPTION:{}:{}:{}:{}'.format(__class__.__name__,sys._getframe().f_code.co_name,self.__friendly_name,traceback.format_exc())
                     else:
                         err_msg = 'EXCEPTION:{}:{}:{}:{}'.format(__class__.__name__,self.__friendly_name,'Online',e)
@@ -2259,7 +2485,7 @@ class ContactInterfaceWrapper(DebugServer):
                 try:
                     f(interface,state)
                 except Exception as e:
-                    if sys_allowed_flag:
+                    if sys_is_xi:
                         err_msg = 'EXCEPTION:{}:{}:{}:{}'.format(__class__.__name__,sys._getframe().f_code.co_name,self.__friendly_name,traceback.format_exc())
                     else:
                         err_msg = 'EXCEPTION:{}:{}:{}:{}'.format(__class__.__name__,self.__friendly_name,'Online',e)
@@ -2279,7 +2505,7 @@ class ContactInterfaceWrapper(DebugServer):
                 try:
                     f(interface,state)
                 except Exception as e:
-                    if sys_allowed_flag:
+                    if sys_is_xi:
                         err_msg = 'EXCEPTION:{}:{}:{}:{}'.format(__class__.__name__,sys._getframe().f_code.co_name,self.__friendly_name,traceback.format_exc())
                     else:
                         err_msg = 'EXCEPTION:{}:{}:{}:{}'.format(__class__.__name__,self.__friendly_name,'StateChanged',e)
@@ -2345,7 +2571,7 @@ class ContactInterfaceWrapper(DebugServer):
             try:
                 temp_dict = _json.loads(temp)
             except Exception as e:
-                if sys_allowed_flag:
+                if sys_is_xi:
                     err_msg = 'EXCEPTION:{}:{}:{}:Option:{}'.format(__class__.__name__,sys._getframe().f_code.co_name,self.__friendly_name,traceback.format_exc())
                 else:
                     err_msg = 'EXCEPTION:{}:{}:{}:{}'.format(__class__.__name__,self.__friendly_name,'Option',e)
@@ -2418,7 +2644,7 @@ class DigitalInputInterfaceWrapper(DebugServer):
                 try:
                     f(interface,state)
                 except Exception as e:
-                    if sys_allowed_flag:
+                    if sys_is_xi:
                         err_msg = 'EXCEPTION:{}:{}:{}:{}'.format(__class__.__name__,sys._getframe().f_code.co_name,self.__friendly_name,traceback.format_exc())
                     else:
                         err_msg = 'EXCEPTION:{}:{}:{}:{}'.format(__class__.__name__,self.__friendly_name,'Online',e)
@@ -2438,7 +2664,7 @@ class DigitalInputInterfaceWrapper(DebugServer):
                 try:
                     f(interface,state)
                 except Exception as e:
-                    if sys_allowed_flag:
+                    if sys_is_xi:
                         err_msg = 'EXCEPTION:{}:{}:{}:{}'.format(__class__.__name__,sys._getframe().f_code.co_name,self.__friendly_name,traceback.format_exc())
                     else:
                         err_msg = 'EXCEPTION:{}:{}:{}:{}'.format(__class__.__name__,self.__friendly_name,'Online',e)
@@ -2458,7 +2684,7 @@ class DigitalInputInterfaceWrapper(DebugServer):
                 try:
                     f(interface,state)
                 except Exception as e:
-                    if sys_allowed_flag:
+                    if sys_is_xi:
                         err_msg = 'EXCEPTION:{}:{}:{}:{}'.format(__class__.__name__,sys._getframe().f_code.co_name,self.__friendly_name,traceback.format_exc())
                     else:
                         err_msg = 'EXCEPTION:{}:{}:{}:{}'.format(__class__.__name__,self.__friendly_name,'StateChanged',e)
@@ -2522,7 +2748,7 @@ class DigitalInputInterfaceWrapper(DebugServer):
             try:
                 temp_dict = _json.loads(temp)
             except Exception as e:
-                if sys_allowed_flag:
+                if sys_is_xi:
                     err_msg = 'EXCEPTION:{}:{}:{}:Option:{}'.format(__class__.__name__,sys._getframe().f_code.co_name,self.__friendly_name,traceback.format_exc())
                 else:
                     err_msg = 'EXCEPTION:{}:{}:{}:{}'.format(__class__.__name__,self.__friendly_name,'Initialize',e)
@@ -2558,7 +2784,7 @@ class DigitalInputInterfaceWrapper(DebugServer):
             try:
                 temp_dict = _json.loads(temp)
             except Exception as e:
-                if sys_allowed_flag:
+                if sys_is_xi:
                     err_msg = 'EXCEPTION:{}:{}:{}:Option:{}'.format(__class__.__name__,sys._getframe().f_code.co_name,self.__friendly_name,traceback.format_exc())
                 else:
                     err_msg = 'EXCEPTION:{}:{}:{}:{}'.format(__class__.__name__,self.__friendly_name,'Option',e)
@@ -2631,7 +2857,7 @@ class DigitalIOInterfaceWrapper(DebugServer):
                 try:
                     f(interface,state)
                 except Exception as e:
-                    if sys_allowed_flag:
+                    if sys_is_xi:
                         err_msg = 'EXCEPTION:{}:{}:{}:{}'.format(__class__.__name__,sys._getframe().f_code.co_name,self.__friendly_name,traceback.format_exc())
                     else:
                         err_msg = 'EXCEPTION:{}:{}:{}:{}'.format(__class__.__name__,self.__friendly_name,'Online',e)
@@ -2651,7 +2877,7 @@ class DigitalIOInterfaceWrapper(DebugServer):
                 try:
                     f(interface,state)
                 except Exception as e:
-                    if sys_allowed_flag:
+                    if sys_is_xi:
                         err_msg = 'EXCEPTION:{}:{}:{}:{}'.format(__class__.__name__,sys._getframe().f_code.co_name,self.__friendly_name,traceback.format_exc())
                     else:
                         err_msg = 'EXCEPTION:{}:{}:{}:{}'.format(__class__.__name__,self.__friendly_name,'Online',e)
@@ -2671,7 +2897,7 @@ class DigitalIOInterfaceWrapper(DebugServer):
                 try:
                     f(interface,state)
                 except Exception as e:
-                    if sys_allowed_flag:
+                    if sys_is_xi:
                         err_msg = 'EXCEPTION:{}:{}:{}:{}'.format(__class__.__name__,sys._getframe().f_code.co_name,self.__friendly_name,traceback.format_exc())
                     else:
                         err_msg = 'EXCEPTION:{}:{}:{}:{}'.format(__class__.__name__,self.__friendly_name,'StateChanged',e)
@@ -2788,7 +3014,7 @@ class DigitalIOInterfaceWrapper(DebugServer):
             try:
                 temp_dict = _json.loads(temp)
             except Exception as e:
-                if sys_allowed_flag:
+                if sys_is_xi:
                     err_msg = 'EXCEPTION:{}:{}:{}:State:{}'.format(__class__.__name__,sys._getframe().f_code.co_name,self.__friendly_name,traceback.format_exc())
                 else:
                     err_msg = 'EXCEPTION:{}:{}:{}:{}'.format(__class__.__name__,self.__friendly_name,'HandleReceiveFromServer:State',e)
@@ -2806,7 +3032,7 @@ class DigitalIOInterfaceWrapper(DebugServer):
             try:
                 temp_dict = _json.loads(temp)
             except Exception as e:
-                if sys_allowed_flag:
+                if sys_is_xi:
                     err_msg = 'EXCEPTION:{}:{}:{}:Pulse:{}'.format(__class__.__name__,sys._getframe().f_code.co_name,self.__friendly_name,traceback.format_exc())
                 else:
                     err_msg = 'EXCEPTION:{}:{}:{}:{}'.format(__class__.__name__,self.__friendly_name,'HandleReceiveFromServer:Pulse',e)
@@ -2822,7 +3048,7 @@ class DigitalIOInterfaceWrapper(DebugServer):
             try:
                 temp_dict = _json.loads(temp)
             except Exception as e:
-                if sys_allowed_flag:
+                if sys_is_xi:
                     err_msg = 'EXCEPTION:{}:{}:{}:Initialize:{}'.format(__class__.__name__,sys._getframe().f_code.co_name,self.__friendly_name,traceback.format_exc())
                 else:
                     err_msg = 'EXCEPTION:{}:{}:{}:{}'.format(__class__.__name__,self.__friendly_name,'HandleReceiveFromServer:Initialize',e)
@@ -2851,7 +3077,7 @@ class DigitalIOInterfaceWrapper(DebugServer):
             try:
                 temp_dict = _json.loads(temp)
             except Exception as e:
-                if sys_allowed_flag:
+                if sys_is_xi:
                     err_msg = 'EXCEPTION:{}:{}:{}:Option:{}'.format(__class__.__name__,sys._getframe().f_code.co_name,self.__friendly_name,traceback.format_exc())
                 else:
                     err_msg = 'EXCEPTION:{}:{}:{}:{}'.format(__class__.__name__,self.__friendly_name,'Options',e)
@@ -2926,7 +3152,7 @@ class FlexIOInterfaceWrapper(DebugServer):
                 try:
                     f(interface,state)
                 except Exception as e:
-                    if sys_allowed_flag:
+                    if sys_is_xi:
                         err_msg = 'EXCEPTION:{}:{}:{}:{}'.format(__class__.__name__,sys._getframe().f_code.co_name,self.__friendly_name,traceback.format_exc())
                     else:
                         err_msg = 'EXCEPTION:{}:{}:{}:{}'.format(__class__.__name__,self.__friendly_name,'Online',e)
@@ -2946,7 +3172,7 @@ class FlexIOInterfaceWrapper(DebugServer):
                 try:
                     f(interface,state)
                 except Exception as e:
-                    if sys_allowed_flag:
+                    if sys_is_xi:
                         err_msg = 'EXCEPTION:{}:{}:{}:{}'.format(__class__.__name__,sys._getframe().f_code.co_name,self.__friendly_name,traceback.format_exc())
                     else:
                         err_msg = 'EXCEPTION:{}:{}:{}:{}'.format(__class__.__name__,self.__friendly_name,'Online',e)
@@ -2966,7 +3192,7 @@ class FlexIOInterfaceWrapper(DebugServer):
                 try:
                     f(interface,state)
                 except Exception as e:
-                    if sys_allowed_flag:
+                    if sys_is_xi:
                         err_msg = 'EXCEPTION:{}:{}:{}:{}'.format(__class__.__name__,sys._getframe().f_code.co_name,self.__friendly_name,traceback.format_exc())
                     else:
                         err_msg = 'EXCEPTION:{}:{}:{}:{}'.format(__class__.__name__,self.__friendly_name,'StateChanged',e)
@@ -2986,7 +3212,7 @@ class FlexIOInterfaceWrapper(DebugServer):
                 try:
                     f(interface,state)
                 except Exception as e:
-                    if sys_allowed_flag:
+                    if sys_is_xi:
                         err_msg = 'EXCEPTION:{}:{}:{}:{}'.format(__class__.__name__,sys._getframe().f_code.co_name,self.__friendly_name,traceback.format_exc())
                     else:
                         err_msg = 'EXCEPTION:{}:{}:{}:{}'.format(__class__.__name__,self.__friendly_name,'VoltageChanged',e)
@@ -3116,7 +3342,7 @@ class FlexIOInterfaceWrapper(DebugServer):
             try:
                 temp_dict = _json.loads(temp)
             except Exception as e:
-                if sys_allowed_flag:
+                if sys_is_xi:
                     err_msg = 'EXCEPTION:{}:{}:{}:State:{}'.format(__class__.__name__,sys._getframe().f_code.co_name,self.__friendly_name,traceback.format_exc())
                 else:
                     err_msg = 'EXCEPTION:{}:{}:{}:{}'.format(__class__.__name__,self.__friendly_name,'HandleReceiveFromServer:State',e)
@@ -3134,7 +3360,7 @@ class FlexIOInterfaceWrapper(DebugServer):
             try:
                 temp_dict = _json.loads(temp)
             except Exception as e:
-                if sys_allowed_flag:
+                if sys_is_xi:
                     err_msg = 'EXCEPTION:{}:{}:{}:Pulse:{}'.format(__class__.__name__,sys._getframe().f_code.co_name,self.__friendly_name,traceback.format_exc())
                 else:
                     err_msg = 'EXCEPTION:{}:{}:{}:{}'.format(__class__.__name__,self.__friendly_name,'HandleRecieveFromServer:Pulse',e)
@@ -3151,7 +3377,7 @@ class FlexIOInterfaceWrapper(DebugServer):
             try:
                 temp_dict = _json.loads(temp)
             except Exception as e:
-                if sys_allowed_flag:
+                if sys_is_xi:
                     err_msg = 'EXCEPTION:{}:{}:{}:Initialize:{}'.format(__class__.__name__,sys._getframe().f_code.co_name,self.__friendly_name,traceback.format_exc())
                 else:
                     err_msg = 'EXCEPTION:{}:{}:{}:{}'.format(__class__.__name__,self.__friendly_name,'HandleReceiveFromServer:Initialize',e)
@@ -3180,7 +3406,7 @@ class FlexIOInterfaceWrapper(DebugServer):
             try:
                 temp_dict = _json.loads(temp)
             except Exception as e:
-                if sys_allowed_flag:
+                if sys_is_xi:
                     err_msg = 'EXCEPTION:{}:{}:{}:Option:{}'.format(__class__.__name__,sys._getframe().f_code.co_name,self.__friendly_name,traceback.format_exc())
                 else:
                     err_msg = 'EXCEPTION:{}:{}:{}:{}'.format(__class__.__name__,self.__friendly_name,'Options',e)
@@ -3254,7 +3480,7 @@ class IRInterfaceWrapper(DebugServer):
                 try:
                     f(interface,state)
                 except Exception as e:
-                    if sys_allowed_flag:
+                    if sys_is_xi:
                         err_msg = 'EXCEPTION:{}:{}:{}:{}'.format(__class__.__name__,sys._getframe().f_code.co_name,self.__friendly_name,traceback.format_exc())
                     else:
                         err_msg = 'EXCEPTION:{}:{}:{}:{}'.format(__class__.__name__,self.__friendly_name,'Online',e)
@@ -3274,7 +3500,7 @@ class IRInterfaceWrapper(DebugServer):
                 try:
                     f(interface,state)
                 except Exception as e:
-                    if sys_allowed_flag:
+                    if sys_is_xi:
                         err_msg = 'EXCEPTION:{}:{}:{}:{}'.format(__class__.__name__,sys._getframe().f_code.co_name,self.__friendly_name,traceback.format_exc())
                     else:
                         err_msg = 'EXCEPTION:{}:{}:{}:{}'.format(__class__.__name__,self.__friendly_name,'Online',e)
@@ -3369,7 +3595,7 @@ class IRInterfaceWrapper(DebugServer):
             try:
                 temp_dict = _json.loads(temp)
             except Exception as e:
-                if sys_allowed_flag:
+                if sys_is_xi:
                     err_msg = 'EXCEPTION:{}:{}:{}:PlayContinuous:{}'.format(__class__.__name__,sys._getframe().f_code.co_name,self.__friendly_name,traceback.format_exc())
                 else:
                     err_msg = 'EXCEPTION:{}:{}:{}:{}'.format(__class__.__name__,self.__friendly_name,'HandleReceiveFromServer:PlayContinuous',e)
@@ -3381,7 +3607,7 @@ class IRInterfaceWrapper(DebugServer):
                 try:
                     self.PlayContinuous(temp_dict['value1'])
                 except Exception as e:
-                    if sys_allowed_flag:
+                    if sys_is_xi:
                         err_msg = 'EXCEPTION:{}:{}:{}:Initialize:{}'.format(__class__.__name__,sys._getframe().f_code.co_name,self.__friendly_name,traceback.format_exc())
                     else:
                         err_msg = 'EXCEPTION:{}:{}:{}:{}'.format(__class__.__name__,self.__friendly_name,'HandleReceiveFromServer:PlayContinuous',e)
@@ -3393,7 +3619,7 @@ class IRInterfaceWrapper(DebugServer):
             try:
                 temp_dict = _json.loads(temp)
             except Exception as e:
-                if sys_allowed_flag:
+                if sys_is_xi:
                     err_msg = 'EXCEPTION:{}:{}:{}:PlayCount:{}'.format(__class__.__name__,sys._getframe().f_code.co_name,self.__friendly_name,traceback.format_exc())
                 else:
                     err_msg = 'EXCEPTION:{}:{}:{}:{}'.format(__class__.__name__,self.__friendly_name,'HandleReceiveFromServer:Playcount',e)
@@ -3412,7 +3638,7 @@ class IRInterfaceWrapper(DebugServer):
                 try:
                     self.PlayCount(temps[0],temps[1])
                 except Exception as e:
-                    if sys_allowed_flag:
+                    if sys_is_xi:
                         err_msg = 'EXCEPTION:{}:{}:{}:Initialize:{}'.format(__class__.__name__,sys._getframe().f_code.co_name,self.__friendly_name,traceback.format_exc())
                     else:
                         err_msg = 'EXCEPTION:{}:{}:{}:{}'.format(__class__.__name__,self.__friendly_name,'HandleReceiveFromServer:PlayCount',e)
@@ -3424,7 +3650,7 @@ class IRInterfaceWrapper(DebugServer):
             try:
                 temp_dict = _json.loads(temp)
             except Exception as e:
-                if sys_allowed_flag:
+                if sys_is_xi:
                     err_msg = 'EXCEPTION:{}:{}:{}:PlayTime:{}'.format(__class__.__name__,sys._getframe().f_code.co_name,self.__friendly_name,traceback.format_exc())
                 else:
                     err_msg = 'EXCEPTION:{}:{}:{}:{}'.format(__class__.__name__,self.__friendly_name,'HandleReceiveFromServer:PlayTime',e)
@@ -3437,7 +3663,7 @@ class IRInterfaceWrapper(DebugServer):
                 try:
                     self.PlayTime(temps[0],float(temps[1]))
                 except Exception as e:
-                    if sys_allowed_flag:
+                    if sys_is_xi:
                         err_msg = 'EXCEPTION:{}:{}:{}:Initialize:{}'.format(__class__.__name__,sys._getframe().f_code.co_name,self.__friendly_name,traceback.format_exc())
                     else:
                         err_msg = 'EXCEPTION:{}:{}:{}:{}'.format(__class__.__name__,self.__friendly_name,'HandleReceiveFromServer:PlayTime',e)
@@ -3452,7 +3678,7 @@ class IRInterfaceWrapper(DebugServer):
             try:
                 temp_dict = _json.loads(temp)
             except Exception as e:
-                if sys_allowed_flag:
+                if sys_is_xi:
                     err_msg = 'EXCEPTION:{}:{}:{}:Initialize:{}'.format(__class__.__name__,sys._getframe().f_code.co_name,self.__friendly_name,traceback.format_exc())
                 else:
                     err_msg = 'EXCEPTION:{}:{}:{}:{}'.format(__class__.__name__,self.__friendly_name,'HandleReceiveFromServer:Initialize',e)
@@ -3465,7 +3691,7 @@ class IRInterfaceWrapper(DebugServer):
                 try:
                     self.Initialize(temps[0])
                 except Exception as e:
-                    if sys_allowed_flag:
+                    if sys_is_xi:
                         err_msg = 'EXCEPTION:{}:{}:{}:Initialize:{}'.format(__class__.__name__,sys._getframe().f_code.co_name,self.__friendly_name,traceback.format_exc())
                     else:
                         err_msg = 'EXCEPTION:{}:{}:{}:{}'.format(__class__.__name__,self.__friendly_name,'HandleReceiveFromServer:Initialize',e)
@@ -3488,7 +3714,7 @@ class IRInterfaceWrapper(DebugServer):
             try:
                 temp_dict = _json.loads(temp)
             except Exception as e:
-                if sys_allowed_flag:
+                if sys_is_xi:
                     err_msg = 'EXCEPTION:{}:{}:{}:Option:{}'.format(__class__.__name__,sys._getframe().f_code.co_name,self.__friendly_name,traceback.format_exc())
                 else:
                     err_msg = 'EXCEPTION:{}:{}:{}:{}'.format(__class__.__name__,self.__friendly_name,'Options',e)
@@ -3565,7 +3791,7 @@ class PoEInterfaceWrapper(DebugServer):
                 try:
                     f(interface,state)
                 except Exception as e:
-                    if sys_allowed_flag:
+                    if sys_is_xi:
                         err_msg = 'EXCEPTION:{}:{}:{}:{}'.format(__class__.__name__,sys._getframe().f_code.co_name,self.__friendly_name,traceback.format_exc())
                     else:
                         err_msg = 'EXCEPTION:{}:{}:{}:{}'.format(__class__.__name__,self.__friendly_name,'Online',e)
@@ -3585,7 +3811,7 @@ class PoEInterfaceWrapper(DebugServer):
                 try:
                     f(interface,state)
                 except Exception as e:
-                    if sys_allowed_flag:
+                    if sys_is_xi:
                         err_msg = 'EXCEPTION:{}:{}:{}:{}'.format(__class__.__name__,sys._getframe().f_code.co_name,self.__friendly_name,traceback.format_exc())
                     else:
                         err_msg = 'EXCEPTION:{}:{}:{}:{}'.format(__class__.__name__,self.__friendly_name,'Online',e)
@@ -3605,7 +3831,7 @@ class PoEInterfaceWrapper(DebugServer):
                 try:
                     f(interface,state)
                 except Exception as e:
-                    if sys_allowed_flag:
+                    if sys_is_xi:
                         err_msg = 'EXCEPTION:{}:{}:{}:{}'.format(__class__.__name__,sys._getframe().f_code.co_name,self.__friendly_name,traceback.format_exc())
                     else:
                         err_msg = 'EXCEPTION:{}:{}:{}:{}'.format(__class__.__name__,self.__friendly_name,'PowerStatusChanged',e)
@@ -3699,7 +3925,7 @@ class PoEInterfaceWrapper(DebugServer):
             try:
                 temp_dict = _json.loads(temp)
             except Exception as e:
-                if sys_allowed_flag:
+                if sys_is_xi:
                     err_msg = 'EXCEPTION:{}:{}:{}:State:{}'.format(__class__.__name__,sys._getframe().f_code.co_name,self.__friendly_name,traceback.format_exc())
                 else:
                     err_msg = 'EXCEPTION:{}:{}:{}:{}'.format(__class__.__name__,self.__friendly_name,'HandleReceiveFromServer:State',e)
@@ -3729,7 +3955,7 @@ class PoEInterfaceWrapper(DebugServer):
             try:
                 temp_dict = _json.loads(temp)
             except Exception as e:
-                if sys_allowed_flag:
+                if sys_is_xi:
                     err_msg = 'EXCEPTION:{}:{}:{}:Option:{}'.format(__class__.__name__,sys._getframe().f_code.co_name,self.__friendly_name,traceback.format_exc())
                 else:
                     err_msg = 'EXCEPTION:{}:{}:{}:{}'.format(__class__.__name__,self.__friendly_name,'Option',e)
@@ -3801,7 +4027,7 @@ class RelayInterfaceWrapper(DebugServer):
                 try:
                     f(interface,state)
                 except Exception as e:
-                    if sys_allowed_flag:
+                    if sys_is_xi:
                         err_msg = 'EXCEPTION:{}:{}:{}:{}'.format(__class__.__name__,sys._getframe().f_code.co_name,self.__friendly_name,traceback.format_exc())
                     else:
                         err_msg = 'EXCEPTION:{}:{}:{}:{}'.format(__class__.__name__,self.__friendly_name,'Online',e)
@@ -3821,7 +4047,7 @@ class RelayInterfaceWrapper(DebugServer):
                 try:
                     f(interface,state)
                 except Exception as e:
-                    if sys_allowed_flag:
+                    if sys_is_xi:
                         err_msg = 'EXCEPTION:{}:{}:{}:{}'.format(__class__.__name__,sys._getframe().f_code.co_name,self.__friendly_name,traceback.format_exc())
                     else:
                         err_msg = 'EXCEPTION:{}:{}:{}:{}'.format(__class__.__name__,self.__friendly_name,'Online',e)
@@ -3920,7 +4146,7 @@ class RelayInterfaceWrapper(DebugServer):
             try:
                 temp_dict = _json.loads(temp)
             except Exception as e:
-                if sys_allowed_flag:
+                if sys_is_xi:
                     err_msg = 'EXCEPTION:{}:{}:{}:State:{}'.format(__class__.__name__,sys._getframe().f_code.co_name,self.__friendly_name,traceback.format_exc())
                 else:
                     err_msg = 'EXCEPTION:{}:{}:{}:{}'.format(__class__.__name__,self.__friendly_name,'HandleReceiveFromServer:State',e)
@@ -3937,7 +4163,7 @@ class RelayInterfaceWrapper(DebugServer):
             try:
                 temp_dict = _json.loads(temp)
             except Exception as e:
-                if sys_allowed_flag:
+                if sys_is_xi:
                     err_msg = 'EXCEPTION:{}:{}:{}:Pulse:{}'.format(__class__.__name__,sys._getframe().f_code.co_name,self.__friendly_name,traceback.format_exc())
                 else:
                     err_msg = 'EXCEPTION:{}:{}:{}:{}'.format(__class__.__name__,self.__friendly_name,'HandleReceiveFromServer:Pulse',e)
@@ -3966,7 +4192,7 @@ class RelayInterfaceWrapper(DebugServer):
             try:
                 temp_dict = _json.loads(temp)
             except Exception as e:
-                if sys_allowed_flag:
+                if sys_is_xi:
                     err_msg = 'EXCEPTION:{}:{}:{}:Option:{}'.format(__class__.__name__,sys._getframe().f_code.co_name,self.__friendly_name,traceback.format_exc())
                 else:
                     err_msg = 'EXCEPTION:{}:{}:{}:{}'.format(__class__.__name__,self.__friendly_name,'Option',e)
@@ -4040,7 +4266,7 @@ class SWACReceptacleInterfaceWrapper(DebugServer):
                 try:
                     f(interface,state)
                 except Exception as e:
-                    if sys_allowed_flag:
+                    if sys_is_xi:
                         err_msg = 'EXCEPTION:{}:{}:{}:{}'.format(__class__.__name__,sys._getframe().f_code.co_name,self.__friendly_name,traceback.format_exc())
                     else:
                         err_msg = 'EXCEPTION:{}:{}:{}:{}'.format(__class__.__name__,self.__friendly_name,'Online',e)
@@ -4060,7 +4286,7 @@ class SWACReceptacleInterfaceWrapper(DebugServer):
                 try:
                     f(interface,state)
                 except Exception as e:
-                    if sys_allowed_flag:
+                    if sys_is_xi:
                         err_msg = 'EXCEPTION:{}:{}:{}:{}'.format(__class__.__name__,sys._getframe().f_code.co_name,self.__friendly_name,traceback.format_exc())
                     else:
                         err_msg = 'EXCEPTION:{}:{}:{}:{}'.format(__class__.__name__,self.__friendly_name,'Offline',e)
@@ -4080,7 +4306,7 @@ class SWACReceptacleInterfaceWrapper(DebugServer):
                 try:
                     f(interface,state)
                 except Exception as e:
-                    if sys_allowed_flag:
+                    if sys_is_xi:
                         err_msg = 'EXCEPTION:{}:{}:{}:{}'.format(__class__.__name__,sys._getframe().f_code.co_name,self.__friendly_name,traceback.format_exc())
                     else:
                         err_msg = 'EXCEPTION:{}:{}:{}:{}'.format(__class__.__name__,self.__friendly_name,'CurrentChanged',e)
@@ -4165,7 +4391,7 @@ class SWACReceptacleInterfaceWrapper(DebugServer):
             try:
                 temp_dict = _json.loads(temp)
             except Exception as e:
-                if sys_allowed_flag:
+                if sys_is_xi:
                     err_msg = 'EXCEPTION:{}:{}:{}:State:{}'.format(__class__.__name__,sys._getframe().f_code.co_name,self.__friendly_name,traceback.format_exc())
                 else:
                     err_msg = 'EXCEPTION:{}:{}:{}:{}'.format(__class__.__name__,self.__friendly_name,'HandleReceiveFromServer:State',e)
@@ -4195,7 +4421,7 @@ class SWACReceptacleInterfaceWrapper(DebugServer):
             try:
                 temp_dict = _json.loads(temp)
             except Exception as e:
-                if sys_allowed_flag:
+                if sys_is_xi:
                     err_msg = 'EXCEPTION:{}:{}:{}:Option:{}'.format(__class__.__name__,sys._getframe().f_code.co_name,self.__friendly_name,traceback.format_exc())
                 else:
                     err_msg = 'EXCEPTION:{}:{}:{}:{}'.format(__class__.__name__,self.__friendly_name,'Option',e)
@@ -4266,7 +4492,7 @@ class SWPowerInterfaceWrapper(DebugServer):
                 try:
                     f(interface,state)
                 except Exception as e:
-                    if sys_allowed_flag:
+                    if sys_is_xi:
                         err_msg = 'EXCEPTION:{}:{}:{}:{}'.format(__class__.__name__,sys._getframe().f_code.co_name,self.__friendly_name,traceback.format_exc())
                     else:
                         err_msg = 'EXCEPTION:{}:{}:{}:{}'.format(__class__.__name__,self.__friendly_name,'Online',e)
@@ -4286,7 +4512,7 @@ class SWPowerInterfaceWrapper(DebugServer):
                 try:
                     f(interface,state)
                 except Exception as e:
-                    if sys_allowed_flag:
+                    if sys_is_xi:
                         err_msg = 'EXCEPTION:{}:{}:{}:{}'.format(__class__.__name__,sys._getframe().f_code.co_name,self.__friendly_name,traceback.format_exc())
                     else:
                         err_msg = 'EXCEPTION:{}:{}:{}:{}'.format(__class__.__name__,self.__friendly_name,'Offline',e)
@@ -4385,7 +4611,7 @@ class SWPowerInterfaceWrapper(DebugServer):
             try:
                 temp_dict = _json.loads(temp)
             except Exception as e:
-                if sys_allowed_flag:
+                if sys_is_xi:
                     err_msg = 'EXCEPTION:{}:{}:{}:State:{}'.format(__class__.__name__,sys._getframe().f_code.co_name,self.__friendly_name,traceback.format_exc())
                 else:
                     err_msg = 'EXCEPTION:{}:{}:{}:{}'.format(__class__.__name__,self.__friendly_name,'HandleReceiveFromServer:State',e)
@@ -4402,7 +4628,7 @@ class SWPowerInterfaceWrapper(DebugServer):
             try:
                 temp_dict = _json.loads(temp)
             except Exception as e:
-                if sys_allowed_flag:
+                if sys_is_xi:
                     err_msg = 'EXCEPTION:{}:{}:{}:Pulse:{}'.format(__class__.__name__,sys._getframe().f_code.co_name,self.__friendly_name,traceback.format_exc())
                 else:
                     err_msg = 'EXCEPTION:{}:{}:{}:{}'.format(__class__.__name__,self.__friendly_name,'HandleReceiveFromServer:Pulse',e)
@@ -4431,7 +4657,7 @@ class SWPowerInterfaceWrapper(DebugServer):
             try:
                 temp_dict = _json.loads(temp)
             except Exception as e:
-                if sys_allowed_flag:
+                if sys_is_xi:
                     err_msg = 'EXCEPTION:{}:{}:{}:Option:{}'.format(__class__.__name__,sys._getframe().f_code.co_name,self.__friendly_name,traceback.format_exc())
                 else:
                     err_msg = 'EXCEPTION:{}:{}:{}:{}'.format(__class__.__name__,self.__friendly_name,'Option',e)
@@ -4503,7 +4729,7 @@ class TallyInterfaceWrapper(DebugServer):
                 try:
                     f(interface,state)
                 except Exception as e:
-                    if sys_allowed_flag:
+                    if sys_is_xi:
                         err_msg = 'EXCEPTION:{}:{}:{}:{}'.format(__class__.__name__,sys._getframe().f_code.co_name,self.__friendly_name,traceback.format_exc())
                     else:
                         err_msg = 'EXCEPTION:{}:{}:{}:{}'.format(__class__.__name__,self.__friendly_name,'Online',e)
@@ -4523,7 +4749,7 @@ class TallyInterfaceWrapper(DebugServer):
                 try:
                     f(interface,state)
                 except Exception as e:
-                    if sys_allowed_flag:
+                    if sys_is_xi:
                         err_msg = 'EXCEPTION:{}:{}:{}:{}'.format(__class__.__name__,sys._getframe().f_code.co_name,self.__friendly_name,traceback.format_exc())
                     else:
                         err_msg = 'EXCEPTION:{}:{}:{}:{}'.format(__class__.__name__,self.__friendly_name,'Offline',e)
@@ -4622,7 +4848,7 @@ class TallyInterfaceWrapper(DebugServer):
             try:
                 temp_dict = _json.loads(temp)
             except Exception as e:
-                if sys_allowed_flag:
+                if sys_is_xi:
                     err_msg = 'EXCEPTION:{}:{}:{}:State:{}'.format(__class__.__name__,sys._getframe().f_code.co_name,self.__friendly_name,traceback.format_exc())
                 else:
                     err_msg = 'EXCEPTION:{}:{}:{}:{}'.format(__class__.__name__,self.__friendly_name,'HandleReceiveFromServer:State',e)
@@ -4639,7 +4865,7 @@ class TallyInterfaceWrapper(DebugServer):
             try:
                 temp_dict = _json.loads(temp)
             except Exception as e:
-                if sys_allowed_flag:
+                if sys_is_xi:
                     err_msg = 'EXCEPTION:{}:{}:{}:Pulse:{}'.format(__class__.__name__,sys._getframe().f_code.co_name,self.__friendly_name,traceback.format_exc())
                 else:
                     err_msg = 'EXCEPTION:{}:{}:{}:{}'.format(__class__.__name__,self.__friendly_name,'HandleReceiveFromServer:Pulse',e)
@@ -4668,7 +4894,7 @@ class TallyInterfaceWrapper(DebugServer):
             try:
                 temp_dict = _json.loads(temp)
             except Exception as e:
-                if sys_allowed_flag:
+                if sys_is_xi:
                     err_msg = 'EXCEPTION:{}:{}:{}:Option:{}'.format(__class__.__name__,sys._getframe().f_code.co_name,self.__friendly_name,traceback.format_exc())
                 else:
                     err_msg = 'EXCEPTION:{}:{}:{}:{}'.format(__class__.__name__,self.__friendly_name,'Option',e)
@@ -4749,7 +4975,7 @@ class VolumeInterfaceWrapper(DebugServer):
                 try:
                     f(interface,state)
                 except Exception as e:
-                    if sys_allowed_flag:
+                    if sys_is_xi:
                         err_msg = 'EXCEPTION:{}:{}:{}:{}'.format(__class__.__name__,sys._getframe().f_code.co_name,self.__friendly_name,traceback.format_exc())
                     else:
                         err_msg = 'EXCEPTION:{}:{}:{}:{}'.format(__class__.__name__,self.__friendly_name,'Online',e)
@@ -4769,7 +4995,7 @@ class VolumeInterfaceWrapper(DebugServer):
                 try:
                     f(interface,state)
                 except Exception as e:
-                    if sys_allowed_flag:
+                    if sys_is_xi:
                         err_msg = 'EXCEPTION:{}:{}:{}:{}'.format(__class__.__name__,sys._getframe().f_code.co_name,self.__friendly_name,traceback.format_exc())
                     else:
                         err_msg = 'EXCEPTION:{}:{}:{}:{}'.format(__class__.__name__,self.__friendly_name,'Offline',e)
@@ -4918,7 +5144,7 @@ class VolumeInterfaceWrapper(DebugServer):
             try:
                 temp_dict = _json.loads(temp)
             except Exception as e:
-                if sys_allowed_flag:
+                if sys_is_xi:
                     err_msg = 'EXCEPTION:{}:{}:{}:Mute:{}'.format(__class__.__name__,sys._getframe().f_code.co_name,self.__friendly_name,traceback.format_exc())
                 else:
                     err_msg = 'EXCEPTION:{}:{}:{}:{}'.format(__class__.__name__,self.__friendly_name,'HandleRecieveFromServer:Mute',e)
@@ -4935,7 +5161,7 @@ class VolumeInterfaceWrapper(DebugServer):
             try:
                 temp_dict = _json.loads(temp)
             except Exception as e:
-                if sys_allowed_flag:
+                if sys_is_xi:
                     err_msg = 'EXCEPTION:{}:{}:{}:Level:{}'.format(__class__.__name__,sys._getframe().f_code.co_name,self.__friendly_name,traceback.format_exc())
                 else:
                     err_msg = 'EXCEPTION:{}:{}:{}:{}'.format(__class__.__name__,self.__friendly_name,'HandleReceiveFromServer:Level',e)
@@ -4951,7 +5177,7 @@ class VolumeInterfaceWrapper(DebugServer):
             try:
                 temp_dict = _json.loads(temp)
             except Exception as e:
-                if sys_allowed_flag:
+                if sys_is_xi:
                     err_msg = 'EXCEPTION:{}:{}:{}:Range:{}'.format(__class__.__name__,sys._getframe().f_code.co_name,self.__friendly_name,traceback.format_exc())
                 else:
                     err_msg = 'EXCEPTION:{}:{}:{}:{}'.format(__class__.__name__,self.__friendly_name,'HandleReceiveFromServer:Range',e)
@@ -4967,7 +5193,7 @@ class VolumeInterfaceWrapper(DebugServer):
             try:
                 temp_dict = _json.loads(temp)
             except Exception as e:
-                if sys_allowed_flag:
+                if sys_is_xi:
                     err_msg = 'EXCEPTION:{}:{}:{}:SoftStart:{}'.format(__class__.__name__,sys._getframe().f_code.co_name,self.__friendly_name,traceback.format_exc())
                 else:
                     err_msg = 'EXCEPTION:{}:{}:{}:{}'.format(__class__.__name__,self.__friendly_name,'HandleReceiveFromServer:SoftStart',e)
@@ -4993,7 +5219,7 @@ class VolumeInterfaceWrapper(DebugServer):
             try:
                 temp_dict = _json.loads(temp)
             except Exception as e:
-                if sys_allowed_flag:
+                if sys_is_xi:
                     err_msg = 'EXCEPTION:{}:{}:{}:Option:{}'.format(__class__.__name__,sys._getframe().f_code.co_name,self.__friendly_name,traceback.format_exc())
                 else:
                     err_msg = 'EXCEPTION:{}:{}:{}:{}'.format(__class__.__name__,self.__friendly_name,'Option',e)
@@ -5045,6 +5271,7 @@ class ProcessorDeviceWrapper(DebugServer):
         self.__combinedloadstate_event_callbacks = []
         self.__combinedwattage_event_callbacks = []
         self.__executivemode_event_callbacks =[]
+        self.__occupancysensorstatechanged_event_callbacks = []
 
         self.__interface = _ProcessorDevice(DeviceAlias,PartNumber) #type:_ProcessorDevice
         self.device = self.__interface
@@ -5068,6 +5295,7 @@ class ProcessorDeviceWrapper(DebugServer):
             'PartNumber':{'Status':{'Live':self.__interface.PartNumber}},
             'SerialNumber':{'Status':{'Live':self.__interface.SerialNumber}},
             'UserUsage':{'Status':{'Live':self.__interface.UserUsage}},
+            'OccupancySensorState':{'Status':{'Live':False}},
             }
 
         self.__systemsettings = self.__interface.SystemSettings
@@ -5086,7 +5314,7 @@ class ProcessorDeviceWrapper(DebugServer):
                 try:
                     f(interface,state)
                 except Exception as e:
-                    if sys_allowed_flag:
+                    if sys_is_xi:
                         err_msg = 'EXCEPTION:{}:{}:{}:{}'.format(__class__.__name__,sys._getframe().f_code.co_name,self.__friendly_name,traceback.format_exc())
                     else:
                         err_msg = 'EXCEPTION:{}:{}:{}:{}'.format(__class__.__name__,self.__friendly_name,'Online',e)
@@ -5106,7 +5334,7 @@ class ProcessorDeviceWrapper(DebugServer):
                 try:
                     f(interface,state)
                 except Exception as e:
-                    if sys_allowed_flag:
+                    if sys_is_xi:
                         err_msg = 'EXCEPTION:{}:{}:{}:{}'.format(__class__.__name__,sys._getframe().f_code.co_name,self.__friendly_name,traceback.format_exc())
                     else:
                         err_msg = 'EXCEPTION:{}:{}:{}:{}'.format(__class__.__name__,self.__friendly_name,'Offline',e)
@@ -5127,7 +5355,7 @@ class ProcessorDeviceWrapper(DebugServer):
                     try:
                         f(interface,state)
                     except Exception as e:
-                        if sys_allowed_flag:
+                        if sys_is_xi:
                             err_msg = 'EXCEPTION:{}:{}:{}:{}'.format(__class__.__name__,sys._getframe().f_code.co_name,self.__friendly_name,traceback.format_exc())
                         else:
                             err_msg = 'EXCEPTION:{}:{}:{}:{}'.format(__class__.__name__,self.__friendly_name,'CombinedCurrentChanged',e)
@@ -5152,7 +5380,7 @@ class ProcessorDeviceWrapper(DebugServer):
                             try:
                                 f(interface,state)
                             except Exception as e:
-                                if sys_allowed_flag:
+                                if sys_is_xi:
                                     err_msg = 'EXCEPTION:{}:{}:{}:{}'.format(__class__.__name__,sys._getframe().f_code.co_name,self.__friendly_name,traceback.format_exc())
                                 else:
                                     err_msg = 'EXCEPTION:{}:{}:{}:{}'.format(__class__.__name__,self.__friendly_name,'ExecutiveModeChanged',e)
@@ -5172,7 +5400,7 @@ class ProcessorDeviceWrapper(DebugServer):
                     try:
                         f(interface,state)
                     except Exception as e:
-                        if sys_allowed_flag:
+                        if sys_is_xi:
                             err_msg = 'EXCEPTION:{}:{}:{}:{}'.format(__class__.__name__,sys._getframe().f_code.co_name,self.__friendly_name,traceback.format_exc())
                         else:
                             err_msg = 'EXCEPTION:{}:{}:{}:{}'.format(__class__.__name__,self.__friendly_name,'CombinedWattageChange',e)
@@ -5192,10 +5420,32 @@ class ProcessorDeviceWrapper(DebugServer):
                     try:
                         f(interface,state)
                     except Exception as e:
-                        if sys_allowed_flag:
+                        if sys_is_xi:
                             err_msg = 'EXCEPTION:{}:{}:{}:{}'.format(__class__.__name__,sys._getframe().f_code.co_name,self.__friendly_name,traceback.format_exc())
                         else:
                             err_msg = 'EXCEPTION:{}:{}:{}:{}'.format(__class__.__name__,self.__friendly_name,'CombinedLoadStateChanged',e)
+                        print(err_msg)
+                        DebugPrint.Print(err_msg)
+                        _ProgramLog(err_msg)
+        if hasattr(self.__interface,'OccupancySensorStateChanged'):
+            self.Commands['OccupancySensorState']['Status']['Live'] = self.device.OccupancySensorState
+            @_event(self.__interface,'OccupancySensorStateChanged')
+            def handleOccupancySensorStateChanged(interface,state):
+                self.Commands['OccupancySensorState']['Status']['Live'] = str(state)
+                update = {'command':'OccupancySensorState','value':state,'qualifier':None}
+                self._DebugServer__send_interface_status(self.__listening_port,update)
+                str_to_send = 'event: Processor({}) ~ OccupancySensorStateChanged {}'.format(self.__friendly_name,state)
+                self.__print_to_trace(str_to_send)
+                self.__printToServer(str_to_send)
+                self.__printToLog(self.__friendly_name,'Event','OccupancySensorStateChanged,{}'.format(state))
+                for f in self.__occupancysensorstatechanged_event_callbacks:
+                    try:
+                        f(interface,state)
+                    except Exception as e:
+                        if sys_is_xi:
+                            err_msg = 'EXCEPTION:{}:{}:{}:{}'.format(__class__.__name__,sys._getframe().f_code.co_name,self.__friendly_name,traceback.format_exc())
+                        else:
+                            err_msg = 'EXCEPTION:{}:{}:{}:{}'.format(__class__.__name__,self.__friendly_name,'OccupancySensorStateChanged',e)
                         print(err_msg)
                         DebugPrint.Print(err_msg)
                         _ProgramLog(err_msg)
@@ -5271,7 +5521,7 @@ class ProcessorDeviceWrapper(DebugServer):
                 if f:
                     _SaveProgramLog(f)
         except Exception as e:
-            if sys_allowed_flag:
+            if sys_is_xi:
                 err_msg = 'EXCEPTION:{}:{}:{}:deleting corrupted file'.format(__class__.__name__,sys._getframe().f_code.co_name,traceback.format_exc())
             else:
                 err_msg = 'EXCEPTION:{}:{}:{}:deleting corrupted file'.format(__class__.__name__,'ReadValues',e)
@@ -5358,7 +5608,7 @@ class ProcessorDeviceWrapper(DebugServer):
             try:
                 temp_dict = _json.loads(temp)
             except Exception as e:
-                if sys_allowed_flag:
+                if sys_is_xi:
                     err_msg = 'EXCEPTION:{}:{}:{}:ExecutiveMode:{}'.format(__class__.__name__,sys._getframe().f_code.co_name,self.__friendly_name,traceback.format_exc())
                 else:
                     err_msg = 'EXCEPTION:{}:{}:{}:{}'.format(__class__.__name__,self.__friendly_name,'HandleReceiveFromServer:ExecutiveMode',e)
@@ -5394,7 +5644,7 @@ class ProcessorDeviceWrapper(DebugServer):
             try:
                 temp_dict = _json.loads(temp)
             except Exception as e:
-                if sys_allowed_flag:
+                if sys_is_xi:
                     err_msg = 'EXCEPTION:{}:{}:{}:Option:{}'.format(__class__.__name__,sys._getframe().f_code.co_name,self.__friendly_name,traceback.format_exc())
                 else:
                     err_msg = 'EXCEPTION:{}:{}:{}:{}'.format(__class__.__name__,self.__friendly_name,'Option',e)
@@ -5480,7 +5730,7 @@ class SPDeviceWrapper(DebugServer):
                 try:
                     f(interface,state)
                 except Exception as e:
-                    if sys_allowed_flag:
+                    if sys_is_xi:
                         err_msg = 'EXCEPTION:{}:{}:{}:{}'.format(__class__.__name__,sys._getframe().f_code.co_name,self.__friendly_name,traceback.format_exc())
                     else:
                         err_msg = 'EXCEPTION:{}:{}:{}:{}'.format(__class__.__name__,self.__friendly_name,'Online',e)
@@ -5500,7 +5750,7 @@ class SPDeviceWrapper(DebugServer):
                 try:
                     f(interface,state)
                 except Exception as e:
-                    if sys_allowed_flag:
+                    if sys_is_xi:
                         err_msg = 'EXCEPTION:{}:{}:{}:{}'.format(__class__.__name__,sys._getframe().f_code.co_name,self.__friendly_name,traceback.format_exc())
                     else:
                         err_msg = 'EXCEPTION:{}:{}:{}:{}'.format(__class__.__name__,self.__friendly_name,'Offline',e)
@@ -5537,7 +5787,7 @@ class SPDeviceWrapper(DebugServer):
                             try:
                                 f(interface,state)
                             except Exception as e:
-                                if sys_allowed_flag:
+                                if sys_is_xi:
                                     err_msg = 'EXCEPTION:{}:{}:{}:{}'.format(__class__.__name__,sys._getframe().f_code.co_name,self.__friendly_name,traceback.format_exc())
                                 else:
                                     err_msg = 'EXCEPTION:{}:{}:{}:{}'.format(__class__.__name__,self.__friendly_name,'CombinedCurrentChanged',e)
@@ -5557,7 +5807,7 @@ class SPDeviceWrapper(DebugServer):
                     try:
                         f(interface,state)
                     except Exception as e:
-                        if sys_allowed_flag:
+                        if sys_is_xi:
                             err_msg = 'EXCEPTION:{}:{}:{}:{}'.format(__class__.__name__,sys._getframe().f_code.co_name,self.__friendly_name,traceback.format_exc())
                         else:
                             err_msg = 'EXCEPTION:{}:{}:{}:{}'.format(__class__.__name__,self.__friendly_name,'CombinedWattageChanged',e)
@@ -5577,7 +5827,7 @@ class SPDeviceWrapper(DebugServer):
                     try:
                         f(interface,state)
                     except Exception as e:
-                        if sys_allowed_flag:
+                        if sys_is_xi:
                             err_msg = 'EXCEPTION:{}:{}:{}:{}'.format(__class__.__name__,sys._getframe().f_code.co_name,self.__friendly_name,traceback.format_exc())
                         else:
                             err_msg = 'EXCEPTION:{}:{}:{}:{}'.format(__class__.__name__,self.__friendly_name,'CombinedLoadStateChanged',e)
@@ -5692,7 +5942,7 @@ class SPDeviceWrapper(DebugServer):
             try:
                 temp_dict = _json.loads(temp)
             except Exception as e:
-                if sys_allowed_flag:
+                if sys_is_xi:
                     err_msg = 'EXCEPTION:{}:{}:{}:Option:{}'.format(__class__.__name__,sys._getframe().f_code.co_name,self.__friendly_name,traceback.format_exc())
                 else:
                     err_msg = 'EXCEPTION:{}:{}:{}:{}'.format(__class__.__name__,self.__friendly_name,'Option',e)
@@ -5787,7 +6037,7 @@ class eBUSDeviceWrapper(DebugServer):
                 try:
                     f(interface,state)
                 except Exception as e:
-                    if sys_allowed_flag:
+                    if sys_is_xi:
                         err_msg = 'EXCEPTION:{}:{}:{}:{}'.format(__class__.__name__,sys._getframe().f_code.co_name,self.__friendly_name,traceback.format_exc())
                     else:
                         err_msg = 'EXCEPTION:{}:{}:{}:{}'.format(__class__.__name__,self.__friendly_name,'Online',e)
@@ -5807,7 +6057,7 @@ class eBUSDeviceWrapper(DebugServer):
                 try:
                     f(interface,state)
                 except Exception as e:
-                    if sys_allowed_flag:
+                    if sys_is_xi:
                         err_msg = 'EXCEPTION:{}:{}:{}:{}'.format(__class__.__name__,sys._getframe().f_code.co_name,self.__friendly_name,traceback.format_exc())
                     else:
                         err_msg = 'EXCEPTION:{}:{}:{}:{}'.format(__class__.__name__,self.__friendly_name,'Offline',e)
@@ -5827,7 +6077,7 @@ class eBUSDeviceWrapper(DebugServer):
                     try:
                         f(interface,time)
                     except Exception as e:
-                        if sys_allowed_flag:
+                        if sys_is_xi:
                             err_msg = 'EXCEPTION:{}:{}:{}:{}'.format(__class__.__name__,sys._getframe().f_code.co_name,self.__friendly_name,traceback.format_exc())
                         else:
                             err_msg = 'EXCEPTION:{}:{}:{}:{}'.format(__class__.__name__,self.__friendly_name,'InactivityChanged',e)
@@ -5847,7 +6097,7 @@ class eBUSDeviceWrapper(DebugServer):
                     try:
                         f(interface,state)
                     except Exception as e:
-                        if sys_allowed_flag:
+                        if sys_is_xi:
                             err_msg = 'EXCEPTION:{}:{}:{}:{}'.format(__class__.__name__,sys._getframe().f_code.co_name,self.__friendly_name,traceback.format_exc())
                         else:
                             err_msg = 'EXCEPTION:{}:{}:{}:{}'.format(__class__.__name__,self.__friendly_name,'LidChanged',e)
@@ -5866,7 +6116,7 @@ class eBUSDeviceWrapper(DebugServer):
                     try:
                         f(interface,command,value)
                     except Exception as e:
-                        if sys_allowed_flag:
+                        if sys_is_xi:
                             err_msg = 'EXCEPTION:{}:{}:{}:{}'.format(__class__.__name__,sys._getframe().f_code.co_name,self.__friendly_name,traceback.format_exc())
                         else:
                             err_msg = 'EXCEPTION:{}:{}:{}:{}'.format(__class__.__name__,self.__friendly_name,'ReceiveResponse',e)
@@ -5886,7 +6136,7 @@ class eBUSDeviceWrapper(DebugServer):
                     try:
                         f(interface,time)
                     except Exception as e:
-                        if sys_allowed_flag:
+                        if sys_is_xi:
                             err_msg = 'EXCEPTION:{}:{}:{}:{}'.format(__class__.__name__,sys._getframe().f_code.co_name,self.__friendly_name,traceback.format_exc())
                         else:
                             err_msg = 'EXCEPTION:{}:{}:{}:{}'.format(__class__.__name__,self.__friendly_name,'LidChanged',e)
@@ -6030,7 +6280,7 @@ class eBUSDeviceWrapper(DebugServer):
             try:
                 temp_dict = _json.loads(temp)
             except Exception as e:
-                if sys_allowed_flag:
+                if sys_is_xi:
                     err_msg = 'EXCEPTION:{}:{}:{}:SetMute:{}'.format(__class__.__name__,sys._getframe().f_code.co_name,self.__friendly_name,traceback.format_exc())
                 else:
                     err_msg = 'EXCEPTION:{}:{}:{}:{}'.format(__class__.__name__,self.__friendly_name,'HandleReceiveFromServer:SetMute',e)
@@ -6050,7 +6300,7 @@ class eBUSDeviceWrapper(DebugServer):
             try:
                 temp_dict = _json.loads(temp)
             except Exception as e:
-                if sys_allowed_flag:
+                if sys_is_xi:
                     err_msg = 'EXCEPTION:{}:{}:{}:SetSleepTimer:{}'.format(__class__.__name__,sys._getframe().f_code.co_name,self.__friendly_name,traceback.format_exc())
                 else:
                     err_msg = 'EXCEPTION:{}:{}:{}:{}'.format(__class__.__name__,self.__friendly_name,'HandleReceiveFromServer:SetSleepTimer',e)
@@ -6075,7 +6325,7 @@ class eBUSDeviceWrapper(DebugServer):
             try:
                 temp_dict = _json.loads(temp)
             except Exception as e:
-                if sys_allowed_flag:
+                if sys_is_xi:
                     err_msg = 'EXCEPTION:{}:{}:{}:SendCommand:{}'.format(__class__.__name__,sys._getframe().f_code.co_name,self.__friendly_name,traceback.format_exc())
                 else:
                     err_msg = 'EXCEPTION:{}:{}:{}:{}'.format(__class__.__name__,self.__friendly_name,'HandleReceiveFromServer:SendCommand',e)
@@ -6100,7 +6350,7 @@ class eBUSDeviceWrapper(DebugServer):
             try:
                 temp_dict = _json.loads(temp)
             except Exception as e:
-                if sys_allowed_flag:
+                if sys_is_xi:
                     err_msg = 'EXCEPTION:{}:{}:{}:Click:{}'.format(__class__.__name__,sys._getframe().f_code.co_name,self.__friendly_name,traceback.format_exc())
                 else:
                     err_msg = 'EXCEPTION:{}:{}:{}:{}'.format(__class__.__name__,self.__friendly_name,'HandleReceiveFromServer:Click',e)
@@ -6135,7 +6385,7 @@ class eBUSDeviceWrapper(DebugServer):
             try:
                 temp_dict = _json.loads(temp)
             except Exception as e:
-                if sys_allowed_flag:
+                if sys_is_xi:
                     err_msg = 'EXCEPTION:{}:{}:{}:Option:{}'.format(__class__.__name__,sys._getframe().f_code.co_name,self.__friendly_name,traceback.format_exc())
                 else:
                     err_msg = 'EXCEPTION:{}:{}:{}:{}'.format(__class__.__name__,self.__friendly_name,'Option',e)
@@ -6187,14 +6437,16 @@ class UIDeviceWrapper(DebugServer):
         self.__brightnesschanged_event_callbacks = []
         self.__hdcpstatuschanged_event_callbacks = []
         self.__inactivitychanged_event_callbacks = []
-        self.__inputpresencechanged_event_callbacks =[]
-        self.__lidchanged_event_callbacks =[]
-        self.__lightchanged_event_callbacks =[]
-        self.__motiondetected_event_callbacks =[]
-        self.__overtemperaturechanged_event_callbacks =[]
-        self.__overtemperaturewarning_event_callbacks =[]
-        self.__overtemperaturewarningstatechanged_event_callbacks =[]
-        self.__sleepchanged_event_callbacks =[]
+        self.__inputpresencechanged_event_callbacks = []
+        self.__ledautobrightnesschanged_event_callbacks = []
+        self.__ledbrightnesschanged_event_callbacks = []
+        self.__lidchanged_event_callbacks = []
+        self.__lightchanged_event_callbacks = []
+        self.__motiondetected_event_callbacks = []
+        self.__overtemperaturechanged_event_callbacks = []
+        self.__overtemperaturewarning_event_callbacks = []
+        self.__overtemperaturewarningstatechanged_event_callbacks = []
+        self.__sleepchanged_event_callbacks = []
 
         self.__interface = _UIDevice(DeviceAlias,PartNumber) #type:_UIDevice
         self.device = self.__interface
@@ -6204,6 +6456,9 @@ class UIDeviceWrapper(DebugServer):
             'OnlineStatus':{'Status':{'Live':'Offline'}},
             'HDCPStatus':{'Parameters': ['Video Input'],'Status': {}},
             'InputPresence':{'Parameters': ['Video Input'],'Status': {}},
+            'LEDAutoBrightness':{'Parameters': ['LED ID'],'Status': {}},
+            'LEDBrightness':{'Parameters': ['LED ID'],'Status': {}},
+            'LEDState':{'Parameters': ['LED ID'],'Status':{}},
             'Mute':{'Parameters': ['Channel Name'],'Status': {}},
             'Volume':{'Parameters': ['Channel Name'],'Status': {}},
             'AutoBrightness':{'Status': {}},
@@ -6212,7 +6467,6 @@ class UIDeviceWrapper(DebugServer):
             'InactivityTime':{'Status':{}},
             'Input':{'Status':{}},
             'LEDBlinking':{'Status':{}},
-            'LEDState':{'Status':{}},
             'MotionDecayTime':{'Status':{}},
             'SleepTimer':{'Status':{}},
             'WakeOnMotion':{'Status':{}},
@@ -6270,7 +6524,7 @@ class UIDeviceWrapper(DebugServer):
                 try:
                     f(interface,state)
                 except Exception as e:
-                    if sys_allowed_flag:
+                    if sys_is_xi:
                         err_msg = 'EXCEPTION:{}:{}:{}:{}'.format(__class__.__name__,sys._getframe().f_code.co_name,self.__friendly_name,traceback.format_exc())
                     else:
                         err_msg = 'EXCEPTION:{}:{}:{}:{}'.format(__class__.__name__,self.__friendly_name,'Online',e)
@@ -6290,7 +6544,7 @@ class UIDeviceWrapper(DebugServer):
                 try:
                     f(interface,state)
                 except Exception as e:
-                    if sys_allowed_flag:
+                    if sys_is_xi:
                         err_msg = 'EXCEPTION:{}:{}:{}:{}'.format(__class__.__name__,sys._getframe().f_code.co_name,self.__friendly_name,traceback.format_exc())
                     else:
                         err_msg = 'EXCEPTION:{}:{}:{}:{}'.format(__class__.__name__,self.__friendly_name,'Offline',e)
@@ -6310,7 +6564,7 @@ class UIDeviceWrapper(DebugServer):
                 try:
                     f(interface,state)
                 except Exception as e:
-                    if sys_allowed_flag:
+                    if sys_is_xi:
                         err_msg = 'EXCEPTION:{}:{}:{}:{}'.format(__class__.__name__,sys._getframe().f_code.co_name,self.__friendly_name,traceback.format_exc())
                     else:
                         err_msg = 'EXCEPTION:{}:{}:{}:{}'.format(__class__.__name__,self.__friendly_name,'Brightness',e)
@@ -6330,7 +6584,7 @@ class UIDeviceWrapper(DebugServer):
                 try:
                     f(interface,state)
                 except Exception as e:
-                    if sys_allowed_flag:
+                    if sys_is_xi:
                         err_msg = 'EXCEPTION:{}:{}:{}:{}'.format(__class__.__name__,sys._getframe().f_code.co_name,self.__friendly_name,traceback.format_exc())
                     else:
                         err_msg = 'EXCEPTION:{}:{}:{}:{}'.format(__class__.__name__,self.__friendly_name,'HDCP',e)
@@ -6367,13 +6621,74 @@ class UIDeviceWrapper(DebugServer):
                 try:
                     f(interface,state)
                 except Exception as e:
-                    if sys_allowed_flag:
+                    if sys_is_xi:
                         err_msg = 'EXCEPTION:{}:{}:{}:{}'.format(__class__.__name__,sys._getframe().f_code.co_name,self.__friendly_name,traceback.format_exc())
                     else:
                         err_msg = 'EXCEPTION:{}:{}:{}:{}'.format(__class__.__name__,self.__friendly_name,'InputPresenceChanged',e)
                     print(err_msg)
                     DebugPrint.Print(err_msg)
                     _ProgramLog(err_msg)
+        if check_api_version('1.10'):
+            @_event(self.__interface,'LEDAutoBrightnessChanged')
+            def handleLEDAutoBrightness(interface,ledId,state):
+                self.Commands['LEDAutoBrightness']['Status'][ledId]['Live'] = str(state)
+                update = {'command':'LEDAutoBrightness','value':str(state),'qualifier':{'LED ID':ledId}}
+                self._DebugServer__send_interface_status(self.__listening_port,update)
+                str_to_send = 'event: UI({}) ~ LEDAutoBrightness {} {}'.format(self.__friendly_name,ledId,state)
+                self.__print_to_trace(str_to_send)
+                self.__printToServer(str_to_send)
+                self.__printToLog(self.__friendly_name,'Event','LEDAutoBrightnessChanged,{},{}'.format(ledId,state))
+                for f in self.__ledautobrightnesschanged_event_callbacks:
+                    try:
+                        f(interface,ledId,state)
+                    except Exception as e:
+                        if sys_is_xi:
+                            err_msg = 'EXCEPTION:{}:{}:{}:{}'.format(__class__.__name__,sys._getframe().f_code.co_name,self.__friendly_name,traceback.format_exc())
+                        else:
+                            err_msg = 'EXCEPTION:{}:{}:{}:{}'.format(__class__.__name__,self.__friendly_name,'LEDAutoBrightnessChanged',e)
+                        print(err_msg)
+                        DebugPrint.Print(err_msg)
+                        _ProgramLog(err_msg)
+            @_event(self.__interface,'LEDBrightnessChanged')
+            def handleLEDBrightness(interface,ledId,brightness):
+                self.Commands['LEDBrightness']['Status'][ledId]['Live'] = str(brightness)
+                update = {'command':'LEDBrightness','value':str(brightness),'qualifier':{'LED ID':ledId}}
+                self._DebugServer__send_interface_status(self.__listening_port,update)
+                str_to_send = 'event: UI({}) ~ LEDBrightness {} {}'.format(self.__friendly_name,ledId,brightness)
+                self.__print_to_trace(str_to_send)
+                self.__printToServer(str_to_send)
+                self.__printToLog(self.__friendly_name,'Event','LEDBrightnessChanged,{},{}'.format(ledId,brightness))
+                for f in self.__ledbrightnesschanged_event_callbacks:
+                    try:
+                        f(interface,ledId,brightness)
+                    except Exception as e:
+                        if sys_is_xi:
+                            err_msg = 'EXCEPTION:{}:{}:{}:{}'.format(__class__.__name__,sys._getframe().f_code.co_name,self.__friendly_name,traceback.format_exc())
+                        else:
+                            err_msg = 'EXCEPTION:{}:{}:{}:{}'.format(__class__.__name__,self.__friendly_name,'LEDBrightnessChanged',e)
+                        print(err_msg)
+                        DebugPrint.Print(err_msg)
+                        _ProgramLog(err_msg)
+            @_event(self.__interface,'LEDStateChanged')
+            def handleLEDState(interface,ledId,color):
+                self.Commands['LEDState']['Status'][ledId]['Live'] = str(color)
+                update = {'command':'LEDState','value':str(color),'qualifier':{'LED ID':ledId}}
+                self._DebugServer__send_interface_status(self.__listening_port,update)
+                str_to_send = 'event: UI({}) ~ LEDState {} {}'.format(self.__friendly_name,ledId,color)
+                self.__print_to_trace(str_to_send)
+                self.__printToServer(str_to_send)
+                self.__printToLog(self.__friendly_name,'Event','LEDStateChanged,{},{}'.format(ledId,color))
+                for f in self.__ledbrightnesschanged_event_callbacks:
+                    try:
+                        f(interface,ledId,color)
+                    except Exception as e:
+                        if sys_is_xi:
+                            err_msg = 'EXCEPTION:{}:{}:{}:{}'.format(__class__.__name__,sys._getframe().f_code.co_name,self.__friendly_name,traceback.format_exc())
+                        else:
+                            err_msg = 'EXCEPTION:{}:{}:{}:{}'.format(__class__.__name__,self.__friendly_name,'LEDBrightnessChanged',e)
+                        print(err_msg)
+                        DebugPrint.Print(err_msg)
+                        _ProgramLog(err_msg)
         @_event(self.__interface,'LidChanged')
         def handlelidstate(interface,state):
             self.Commands['LidState']['Status']['Live'] = str(state)
@@ -6387,7 +6702,7 @@ class UIDeviceWrapper(DebugServer):
                 try:
                     f(interface,state)
                 except Exception as e:
-                    if sys_allowed_flag:
+                    if sys_is_xi:
                         err_msg = 'EXCEPTION:{}:{}:{}:{}'.format(__class__.__name__,sys._getframe().f_code.co_name,self.__friendly_name,traceback.format_exc())
                     else:
                         err_msg = 'EXCEPTION:{}:{}:{}:{}'.format(__class__.__name__,self.__friendly_name,'LidStateChanged',e)
@@ -6407,7 +6722,7 @@ class UIDeviceWrapper(DebugServer):
                 try:
                     f(interface,state)
                 except Exception as e:
-                    if sys_allowed_flag:
+                    if sys_is_xi:
                         err_msg = 'EXCEPTION:{}:{}:{}:{}'.format(__class__.__name__,sys._getframe().f_code.co_name,self.__friendly_name,traceback.format_exc())
                     else:
                         err_msg = 'EXCEPTION:{}:{}:{}:{}'.format(__class__.__name__,self.__friendly_name,'AmbientLightValueChanged',e)
@@ -6427,7 +6742,7 @@ class UIDeviceWrapper(DebugServer):
                 try:
                     f(interface,state)
                 except Exception as e:
-                    if sys_allowed_flag:
+                    if sys_is_xi:
                         err_msg = 'EXCEPTION:{}:{}:{}:{}'.format(__class__.__name__,sys._getframe().f_code.co_name,self.__friendly_name,traceback.format_exc())
                     else:
                         err_msg = 'EXCEPTION:{}:{}:{}:{}'.format(__class__.__name__,self.__friendly_name,'MotionDetectionChanged',e)
@@ -6450,7 +6765,7 @@ class UIDeviceWrapper(DebugServer):
                     try:
                         f(interface,state)
                     except Exception as e:
-                        if sys_allowed_flag:
+                        if sys_is_xi:
                             err_msg = 'EXCEPTION:{}:{}:{}:{}'.format(__class__.__name__,sys._getframe().f_code.co_name,self.__friendly_name,traceback.format_exc())
                         else:
                             err_msg = 'EXCEPTION:{}:{}:{}:{}'.format(__class__.__name__,self.__friendly_name,'OverTemperatureChanged',e)
@@ -6473,7 +6788,7 @@ class UIDeviceWrapper(DebugServer):
                     try:
                         f(interface,state)
                     except Exception as e:
-                        if sys_allowed_flag:
+                        if sys_is_xi:
                             err_msg = 'EXCEPTION:{}:{}:{}:{}'.format(__class__.__name__,sys._getframe().f_code.co_name,self.__friendly_name,traceback.format_exc())
                         else:
                             err_msg = 'EXCEPTION:{}:{}:{}:{}'.format(__class__.__name__,self.__friendly_name,'OverTemperatureWarning',e)
@@ -6496,7 +6811,7 @@ class UIDeviceWrapper(DebugServer):
                     try:
                         f(interface,state)
                     except Exception as e:
-                        if sys_allowed_flag:
+                        if sys_is_xi:
                             err_msg = 'EXCEPTION:{}:{}:{}:{}'.format(__class__.__name__,sys._getframe().f_code.co_name,self.__friendly_name,traceback.format_exc())
                         else:
                             err_msg = 'EXCEPTION:{}:{}:{}:{}'.format(__class__.__name__,self.__friendly_name,'OverTemperatureWarningStateChanged',e)
@@ -6519,7 +6834,7 @@ class UIDeviceWrapper(DebugServer):
                 try:
                     f(interface,state)
                 except Exception as e:
-                    if sys_allowed_flag:
+                    if sys_is_xi:
                         err_msg = 'EXCEPTION:{}:{}:{}:{}'.format(__class__.__name__,sys._getframe().f_code.co_name,self.__friendly_name,traceback.format_exc())
                     else:
                         err_msg = 'EXCEPTION:{}:{}:{}:{}'.format(__class__.__name__,self.__friendly_name,'SleepChanged',e)
@@ -6926,12 +7241,71 @@ class UIDeviceWrapper(DebugServer):
     def GetInterfaceType(self):
         return self.__interface_type
     def GetHDCPStatus(self,videoInput:'str'):
-        return self.__interface.GetHDCPStatus(videoInput)
+        v =  self.__interface.GetHDCPStatus(videoInput)
+        if v != self.Commands['HDCPStatus']['Status'][videoInput]['Live']:
+            self.Commands['HDCPStatus']['Status'][videoInput]['Live'] = v
+            update = {'event':'HDCPStatus','value':v,'qualifier':{'Video Input':videoInput}}
+            self._DebugServer__send_interface_status(self.__listening_port,update)
+            str_to_send = 'event: UI({}) ~ HDCPStatus {} {}'.format(self.__friendly_name,videoInput,v)
+            self.__print_to_trace(str_to_send)
+            self.__printToServer(str_to_send)
+            self.__printToLog(self.__friendly_name,'Event','HDCPStatusChanged,{}'.format(v))
+        return v
+    def GetInputPresence(self,videoInput:'str'):
+        v =  self.__interface.GetInputPresence(videoInput)
+        if v != self.Commands['InputPresence']['Status'][videoInput]['Live']:
+            self.Commands['InputPresence']['Status'][videoInput]['Live'] = v
+            update = {'event':'InputPresence','value':v,'qualifier':{'Video Input':videoInput}}
+            self._DebugServer__send_interface_status(self.__listening_port,update)
+            str_to_send = 'event: UI({}) ~ InputPresence {} {}'.format(self.__friendly_name,videoInput,v)
+            self.__print_to_trace(str_to_send)
+            self.__printToServer(str_to_send)
+            self.__printToLog(self.__friendly_name,'Event','InputPresenceChanged,{}'.format(v))
+        return v
+    def GetLEDAutoBrightness(self,ledId:'int'):
+        '''
+        Can be used with the TLP Pro 535, TLP Pro 835, TLP Pro 1035, and TLP Pro 1535 Series touchpanels using LED id 65532.
+        '''
+        v =  self.__interface.GetLEDAutoBrightness(ledId)
+        if v != self.Commands['LEDAutoBrightness']['Status'][ledId]['Live']:
+            self.Commands['LEDAutoBrightness']['Status'][ledId]['Live'] = v
+            update = {'event':'LEDAutoBrightness','value':v,'qualifier':{'LED ID':ledId}}
+            self._DebugServer__send_interface_status(self.__listening_port,update)
+            str_to_send = 'event: UI({}) ~ LEDAutoBrightness {} {}'.format(self.__friendly_name,ledId,v)
+            self.__print_to_trace(str_to_send)
+            self.__printToServer(str_to_send)
+            self.__printToLog(self.__friendly_name,'Event','LEDAutoBrightnessChanged,{}'.format(v))
+        return v
+    def GetLEDBrightness(self,ledId:'int'):
+        '''
+        Can be used with the TLP Pro 535, TLP Pro 835, TLP Pro 1035, and TLP Pro 1535 Series touchpanels using LED id 65532.
+        '''
+        v =  self.__interface.GetLEDBrightness(ledId)
+        if v != self.Commands['LEDBrightness']['Status'][ledId]['Live']:
+            self.Commands['LEDBrightness']['Status'][ledId]['Live'] = v
+            update = {'event':'LEDBrightness','value':v,'qualifier':{'LED ID':ledId}}
+            self._DebugServer__send_interface_status(self.__listening_port,update)
+            str_to_send = 'event: UI({}) ~ LEDBrightness {} {}'.format(self.__friendly_name,ledId,v)
+            self.__print_to_trace(str_to_send)
+            self.__printToServer(str_to_send)
+            self.__printToLog(self.__friendly_name,'Event','LEDBrightnessChanged,{}'.format(v))
+        return v
+    def GetLEDState(self,ledId:'int'=None):
+        v =  self.__interface.GetLEDState(ledId)
+        if v != self.Commands['LEDState']['Status'][ledId]['Live']:
+            self.Commands['LEDState']['Status'][ledId]['Live'] = v
+            update = {'event':'LEDState','value':v,'qualifier':{'LED ID':ledId}}
+            self._DebugServer__send_interface_status(self.__listening_port,update)
+            str_to_send = 'event: UI({}) ~ LEDState {} {}'.format(self.__friendly_name,ledId,v)
+            self.__print_to_trace(str_to_send)
+            self.__printToServer(str_to_send)
+            self.__printToLog(self.__friendly_name,'Event','LEDStateChanged,{}'.format(v))
+        return v
     def GetMute(self,name:'str'):
         v = self.__interface.GetMute(name)
         if v != self.Commands['Mute']['Status'][name]['Live']:
             self.Commands['Mute']['Status'][name]['Live'] = v
-            update = {'command':'Mute','value':v,'qualifier':{'Channel Name':name}}
+            update = {'event':'Mute','value':v,'qualifier':{'Channel Name':name}}
             self._DebugServer__send_interface_status(self.__listening_port,update)
             str_to_send = 'event: UI({}) ~ Mute {} {}'.format(self.__friendly_name,name,v)
             self.__print_to_trace(str_to_send)
@@ -6942,7 +7316,7 @@ class UIDeviceWrapper(DebugServer):
         v = self.__interface.GetVolume(name)
         if str(v) != self.Commands['Volume']['Status'][name]['Live']:
             self.Commands['Volume']['Status'][name]['Live'] = str(v)
-            update = {'command':'Volume','value':str(v),'qualifier':{'Channel Name':name}}
+            update = {'event':'Volume','value':str(v),'qualifier':{'Channel Name':name}}
             self._DebugServer__send_interface_status(self.__listening_port,update)
             str_to_send = 'event: UI({}) ~ Volume {} {}'.format(self.__friendly_name,name,v)
             self.__print_to_trace(str_to_send)
@@ -7009,13 +7383,35 @@ class UIDeviceWrapper(DebugServer):
         self.__print_to_trace(str_to_send)
         self.__printToServer(str_to_send)
         self.__printToLog(self.__friendly_name,'Command','SetInput,{}'.format(videoInput))
+    def SetLEDAutoBrightness(self,ledId:'int',state:'bool'):
+        '''
+        Can be used with the TLP Pro 535, TLP Pro 835, TLP Pro 1035, and TLP Pro 1535 Series touchpanels using LED id 65532.
+        '''
+        self.__interface.SetLEDAutoBrightness(ledId,state)
+        str_to_send = 'command: UI({}) ~ SetLEDAutoBrightness({},{})'.format(self.__friendly_name,ledId,state)
+        self.__print_to_trace(str_to_send)
+        self.__printToServer(str_to_send)
+        self.__printToLog(self.__friendly_name,'Command','SetLEDAutoBrightness,{},{}'.format(ledId,state))
     def SetLEDBlinking(self,ledId:'int',rate:'str',stateList:'list[str]'):
         self.__interface.SetLEDBlinking(ledId,rate,stateList)
         str_to_send = 'command: UI({}) ~ SetLEDBlinking({},{},{})'.format(self.__friendly_name,ledId,rate,stateList)
         self.__print_to_trace(str_to_send)
         self.__printToServer(str_to_send)
         self.__printToLog(self.__friendly_name,'Command','SetLEDBlinking,{},{},{}'.format(ledId,rate,stateList))
+    def SetLEDBrightness(self,ledId:'int',level:'int'):
+        '''
+        Can be used with the TLP Pro 535, TLP Pro 835, TLP Pro 1035, and TLP Pro 1535 Series touchpanels using LED id 65532.
+        '''
+        self.__interface.SetLEDBrightness(ledId,level)
+        str_to_send = 'command: UI({}) ~ SetLEDBrightness({},{})'.format(self.__friendly_name,ledId,level)
+        self.__print_to_trace(str_to_send)
+        self.__printToServer(str_to_send)
+        self.__printToLog(self.__friendly_name,'Command','SetLEDBrightness,{},{}'.format(ledId,level))
     def SetLEDState(self,ledId:'int',state:'str'):
+        '''
+        Can be used with the TLP Pro 535, TLP Pro 835, TLP Pro 1035, and TLP Pro 1535 Series touchpanels using LED id 65532.
+        65533 for all others.
+        '''
         self.__interface.SetLEDState(ledId,state)
         str_to_send = 'command: UI({}) ~ SetLEDState({},{})'.format(self.__friendly_name,ledId,state)
         self.__print_to_trace(str_to_send)
@@ -7251,7 +7647,7 @@ class UIDeviceWrapper(DebugServer):
             try:
                 temp_dict = _json.loads(temp)
             except Exception as e:
-                if sys_allowed_flag:
+                if sys_is_xi:
                     err_msg = 'EXCEPTION:{}:{}:{}:ShowPage:{}'.format(__class__.__name__,sys._getframe().f_code.co_name,self.__friendly_name,traceback.format_exc())
                 else:
                     err_msg = 'EXCEPTION:{}:{}:{}:{}'.format(__class__.__name__,self.__friendly_name,'ShowPage',e)
@@ -7267,7 +7663,7 @@ class UIDeviceWrapper(DebugServer):
             try:
                 temp_dict = _json.loads(temp)
             except Exception as e:
-                if sys_allowed_flag:
+                if sys_is_xi:
                     err_msg = 'EXCEPTION:{}:{}:{}:ShowPopup:{}'.format(__class__.__name__,sys._getframe().f_code.co_name,self.__friendly_name,traceback.format_exc())
                 else:
                     err_msg = 'EXCEPTION:{}:{}:{}:{}'.format(__class__.__name__,self.__friendly_name,'ShowPopup',e)
@@ -7288,7 +7684,7 @@ class UIDeviceWrapper(DebugServer):
             try:
                 temp_dict = _json.loads(temp)
             except Exception as e:
-                if sys_allowed_flag:
+                if sys_is_xi:
                     err_msg = 'EXCEPTION:{}:{}:{}:HidePopupGroup:{}'.format(__class__.__name__,sys._getframe().f_code.co_name,self.__friendly_name,traceback.format_exc())
                 else:
                     err_msg = 'EXCEPTION:{}:{}:{}:{}'.format(__class__.__name__,self.__friendly_name,'HidePopupGroup',e)
@@ -7308,7 +7704,7 @@ class UIDeviceWrapper(DebugServer):
             try:
                 temp_dict = _json.loads(temp)
             except Exception as e:
-                if sys_allowed_flag:
+                if sys_is_xi:
                     err_msg = 'EXCEPTION:{}:{}:{}:HidePopup:{}'.format(__class__.__name__,sys._getframe().f_code.co_name,self.__friendly_name,traceback.format_exc())
                 else:
                     err_msg = 'EXCEPTION:{}:{}:{}:{}'.format(__class__.__name__,self.__friendly_name,'HidePopup',e)
@@ -7322,6 +7718,107 @@ class UIDeviceWrapper(DebugServer):
         if 'HideAllPopups(' in serverBuffer:
             if self.__interface:
                 self.HideAllPopups()
+        if 'SetLEDAutoBrightness(' in serverBuffer:
+            temp = serverBuffer[serverBuffer.find('(')+1:serverBuffer.rfind(')')]
+            try:
+                temp_dict = _json.loads(temp)
+            except Exception as e:
+                if sys_is_xi:
+                    err_msg = 'EXCEPTION:{}:{}:{}:SetLEDAutoBrightness:{}'.format(__class__.__name__,sys._getframe().f_code.co_name,self.__friendly_name,traceback.format_exc())
+                else:
+                    err_msg = 'EXCEPTION:{}:{}:{}:{}'.format(__class__.__name__,self.__friendly_name,'SetLEDAutoBrightness',e)
+                print(err_msg)
+                DebugPrint.Print(err_msg)
+                _ProgramLog(err_msg)
+                return
+            temp1=temp_dict['value1']
+            temp2=temp_dict['value2']
+            try:
+                temp1 = int(temp1)
+            except:
+                temp1 = None
+            try:
+                temp2 = {'False':False,'True':True}[temp2]
+            except:
+                temp2 = None
+            if self.__interface and temp1 and temp2 is not None:
+                self.SetLEDAutoBrightness(temp1,temp2)
+        if 'SetLEDBrightness(' in serverBuffer:
+            temp = serverBuffer[serverBuffer.find('(')+1:serverBuffer.rfind(')')]
+            try:
+                temp_dict = _json.loads(temp)
+            except Exception as e:
+                if sys_is_xi:
+                    err_msg = 'EXCEPTION:{}:{}:{}:SetLEDBrightness:{}'.format(__class__.__name__,sys._getframe().f_code.co_name,self.__friendly_name,traceback.format_exc())
+                else:
+                    err_msg = 'EXCEPTION:{}:{}:{}:{}'.format(__class__.__name__,self.__friendly_name,'SetLEDBrightness',e)
+                print(err_msg)
+                DebugPrint.Print(err_msg)
+                _ProgramLog(err_msg)
+                return
+            temp1=temp_dict['value1']
+            temp2=temp_dict['value2']
+            try:
+                temp1 = int(temp1)
+            except:
+                temp1 = None
+            try:
+                temp2 = int(temp2)
+            except:
+                temp2 = None
+            if self.__interface and temp1 and temp2 is not None:
+                self.SetLEDBrightness(temp1,temp2)
+        if 'SetLEDState(' in serverBuffer:
+            temp = serverBuffer[serverBuffer.find('(')+1:serverBuffer.rfind(')')]
+            try:
+                temp_dict = _json.loads(temp)
+            except Exception as e:
+                if sys_is_xi:
+                    err_msg = 'EXCEPTION:{}:{}:{}:SetLEDState:{}'.format(__class__.__name__,sys._getframe().f_code.co_name,self.__friendly_name,traceback.format_exc())
+                else:
+                    err_msg = 'EXCEPTION:{}:{}:{}:{}'.format(__class__.__name__,self.__friendly_name,'SetLEDState',e)
+                print(err_msg)
+                DebugPrint.Print(err_msg)
+                _ProgramLog(err_msg)
+                return
+            temp1=temp_dict['value1']
+            temp2=temp_dict['value2']
+            try:
+                temp1 = int(temp1)
+            except:
+                temp1 = None
+            if self.__interface and temp1 and temp2:
+                self.SetLEDState(temp1,temp2)
+        if 'SetLEDBlinking(' in serverBuffer:
+            temp = serverBuffer[serverBuffer.find('(')+1:serverBuffer.rfind(')')]
+            try:
+                temp_dict = _json.loads(temp)
+            except Exception as e:
+                if sys_is_xi:
+                    err_msg = 'EXCEPTION:{}:{}:{}:SetLEDBrightness:{}'.format(__class__.__name__,sys._getframe().f_code.co_name,self.__friendly_name,traceback.format_exc())
+                else:
+                    err_msg = 'EXCEPTION:{}:{}:{}:{}'.format(__class__.__name__,self.__friendly_name,'SetLEDBrightness',e)
+                print(err_msg)
+                DebugPrint.Print(err_msg)
+                _ProgramLog(err_msg)
+                return
+            temp1=temp_dict['value1']
+            temp2=temp_dict['value2']
+            temp3=temp_dict['value3']
+            try:
+                temp1 = int(temp1)
+            except:
+                temp1 = None
+            if type(temp3) == type(""):
+                temp3 = temp3.split(',')
+                count = 0
+                for item in temp3:
+                    temp3[count] = item.strip()
+                    count += 1
+            if type(temp3) != type([]):
+                temp3 == None
+            if self.__interface and temp1 and temp2 and temp3:
+                self.SetLEDBlinking(temp1,temp2,temp3)
         if 'Wake(' in serverBuffer:
             if self.__interface:
                 self.Wake()
@@ -7346,7 +7843,7 @@ class UIDeviceWrapper(DebugServer):
             try:
                 temp_dict = _json.loads(temp)
             except Exception as e:
-                if sys_allowed_flag:
+                if sys_is_xi:
                     err_msg = 'EXCEPTION:{}:{}:{}:Option:{}'.format(__class__.__name__,sys._getframe().f_code.co_name,self.__friendly_name,traceback.format_exc())
                 else:
                     err_msg = 'EXCEPTION:{}:{}:{}:{}'.format(__class__.__name__,self.__friendly_name,'Option',e)
@@ -7369,17 +7866,123 @@ class UIDeviceWrapper(DebugServer):
     def __print_to_trace(self,value):
         if self.__enable_print_to_trace:
             print(value)
+class StreamSourceWrapper(DebugServer):
+    instances = {} #type:dict[str,StreamSourceWrapper]
+    def __new__(cls,Name:'str',URI:'str',Port=None,credentials=None,listening_port:'int'=0):
+        key = Name
+        if key in cls.instances:
+            return cls.instances[key]
+        instance = super().__new__(cls)
+        cls.instances[key] = instance
+        return instance
+    def __init__(self,Name:'str',URI:'str',Port=None,credentials=None,listening_port:'int'=0):
+        if not check_api_version('1.10'):
+            DebugPrint.Print('StreamSourceWrapper:__init__:Warning:Unable to create StreamSource object:API version requirement not met.')
+            return
+        if hasattr(self,"Commands"):
+            return
+        self.__interface_type = 'StreamSource'
+        self.__listening_port = listening_port
+        self.__friendly_name = Name
+        if not self.__listening_port:
+            self.__listening_port = self._DebugServer__create_listening_port()
+        self.key = self.__friendly_name
 
+        self.EnableFileLogging = True
 
+        self.__enable_print_to_trace = self._DebugServer__get_nv_option(self.__listening_port)
 
+        self.__interface = _StreamSource(Name,URI,Port,credentials)
+        self.__interface.Credentials = credentials
+        self.Commands = {
+            'Name': {'Status': {'Live':Name}},
+            'URI':{'Status':{'Live':URI}},
+            'Port':{'Status':{'Live':Port}}
+            }
 
+        self._DebugServer__add_instance(self.__listening_port,self,self.__friendly_name,self.__interface_type)
 
+    def __eq__(self,other):
+        if type(self) != type(other):return False
+        return self.key == other.key
 
+    def GetInterface(self):
+        return self.__interface
+    def GetInterfaceType(self):
+        return self.__interface_type
 
+    def SubscribeStatus(self,command,function):
+        pass
 
+    def __printToLog(self,device,message_type,data):
+        if(self.EnableFileLogging):
+            DebugFileLogSaver.AddLog(device,message_type,data)
 
+    def __printToServer(self,string):
+        timestamp = str(_datetime.now())
+        str_to_send = repr(string)
+        str_to_send = '{} {}'.format(timestamp,str_to_send[1:])
+        self._DebugServer__send_interface_communication(self.__listening_port,str_to_send)
 
+    @property
+    def Device(self):
+        return self.__interface
+    @property
+    def Name(self):
+        return self.__interface.Name
+    @property
+    def Port(self):
+        return self.__interface.Port
+    @property
+    def URI(self):
+        return self.__interface.URI
 
+    def HandleReceiveFromServer(self,client,data:'bytes'):
+        serverBuffer = ''
+        try:
+            serverBuffer += data.decode()
+            #print('module recieve data:{}'.format(data.decode()))
+        except:
+            serverBuffer += data
+            #print('module recieve data:{}'.format(data))
+
+    def HandleOptions(self,client,data:'bytes'):
+        serverBuffer = ''
+        try:
+            serverBuffer += data.decode()
+            #print('module recieve data:{}'.format(data.decode()))
+        except:
+            serverBuffer += data
+            #print('module recieve data:{}'.format(data))
+        if 'Option(' in serverBuffer:
+            temp = serverBuffer[serverBuffer.find('(')+1:serverBuffer.rfind(')')]
+            temp_dict = {}
+            try:
+                temp_dict = _json.loads(temp)
+            except Exception as e:
+                if sys_is_xi:
+                    err_msg = 'EXCEPTION:{}:{}:{}:Option:{}'.format(__class__.__name__,sys._getframe().f_code.co_name,self.__friendly_name,traceback.format_exc())
+                else:
+                    err_msg = 'EXCEPTION:{}:{}:{}:{}'.format(__class__.__name__,self.__friendly_name,'Option',e)
+                print(err_msg)
+                DebugPrint.Print(err_msg)
+                _ProgramLog(err_msg)
+            cmd = ''
+            if 'option' in temp_dict:
+                cmd = temp_dict['option']
+            value = ''
+            if 'value' in temp_dict:
+                value = temp_dict['value']
+            if cmd == 'print to trace':
+                self.__enable_print_to_trace = value
+            str_to_send = 'command: Module({}) ~ PrintToTrace({})'.format(self.__friendly_name,value)
+            print(str_to_send)
+            self.__printToServer(str_to_send)
+            self.__printToLog(self.__friendly_name,'Option', 'PrintToTrace,{}'.format(value))
+            self._DebugServer__update_nv_option(self.__listening_port,cmd,value)
+    def __print_to_trace(self,value):
+        if self.__enable_print_to_trace:
+            print(value)
 
 
 
@@ -7518,7 +8121,7 @@ class VirtualUI(DebugServer):
         return __class__.__devTPs[tp_alias]['Object']
     def __AddPanel(tp:_UIDevice):
         if tp.DeviceAlias not in __class__.__devTPs:
-            __class__.__devTPs[tp.DeviceAlias] = {'Object':tp,'Buttons':{},'Labels':{},'Levels':{},'Sliders':{},'Knobs':{}}
+            __class__.__devTPs[tp.DeviceAlias] = {'Object':tp,'Buttons':{},'Labels':{},'Levels':{},'Sliders':{},'Knobs':{},'Videos':{}}
     def __AddButton(tpList:str,idList:int,holdTime:'dict',repeatTime:'dict'):
         for alias in tpList:
             if alias not in __class__.__devTPs:
@@ -7545,7 +8148,7 @@ class VirtualUI(DebugServer):
                                         try:
                                             func(button,state)
                                         except Exception as e:
-                                            if sys_allowed_flag:
+                                            if sys_is_xi:
                                                 err_msg = 'EXCEPTION:{}:{}:{}:Button:{}:{}:{}'.format(__class__.__name__,sys._getframe().f_code.co_name,instance.__friendly_name,button.ID,state,traceback.format_exc())
                                             else:
                                                 err_msg = 'EXCEPTION:{}:{}:{}:{}'.format(__class__.__name__,instance.__friendly_name,'Pressed',e)
@@ -7561,7 +8164,7 @@ class VirtualUI(DebugServer):
                                         try:
                                             func(button,state)
                                         except Exception as e:
-                                            if sys_allowed_flag:
+                                            if sys_is_xi:
                                                 err_msg = 'EXCEPTION:{}:{}:{}:Button:{}:{}:{}'.format(__class__.__name__,sys._getframe().f_code.co_name,instance.__friendly_name,button.ID,state,traceback.format_exc())
                                             else:
                                                 err_msg = 'EXCEPTION:{}:{}:{}:{}:{}'.format(__class__.__name__,instance.__friendly_name,'Released',state,e)
@@ -7577,7 +8180,7 @@ class VirtualUI(DebugServer):
                                         try:
                                             func(button,state)
                                         except Exception as e:
-                                            if sys_allowed_flag:
+                                            if sys_is_xi:
                                                 err_msg = 'EXCEPTION:{}:{}:{}:Button:{}:{}:{}'.format(__class__.__name__,sys._getframe().f_code.co_name,instance.__friendly_name,button.ID,state,traceback.format_exc())
                                             else:
                                                 err_msg = 'EXCEPTION:{}:{}:{}:{}:{}'.format(__class__.__name__,instance.__friendly_name,'Held',state,e)
@@ -7593,7 +8196,7 @@ class VirtualUI(DebugServer):
                                         try:
                                             func(button,state)
                                         except Exception as e:
-                                            if sys_allowed_flag:
+                                            if sys_is_xi:
                                                 err_msg = 'EXCEPTION:{}:{}:{}:Button:{}:{}:{}'.format(__class__.__name__,sys._getframe().f_code.co_name,instance.__friendly_name,button.ID,state,traceback.format_exc())
                                             else:
                                                 err_msg = 'EXCEPTION:{}:{}:{}:{}:{}'.format(__class__.__name__,instance.__friendly_name,'Tapped',state,e)
@@ -7609,7 +8212,7 @@ class VirtualUI(DebugServer):
                                         try:
                                             func(button,state)
                                         except Exception as e:
-                                            if sys_allowed_flag:
+                                            if sys_is_xi:
                                                 err_msg = 'EXCEPTION:{}:{}:{}:Button:{}:{}:{}'.format(__class__.__name__,sys._getframe().f_code.co_name,instance.__friendly_name,button.ID,state,traceback.format_exc())
                                             else:
                                                 err_msg = 'EXCEPTION:{}:{}:{}:{}:{}'.format(__class__.__name__,instance.__friendly_name,'Repeated',state,e)
@@ -7644,7 +8247,7 @@ class VirtualUI(DebugServer):
                                         try:
                                             func(knob,direction)
                                         except Exception as e:
-                                            if sys_allowed_flag:
+                                            if sys_is_xi:
                                                 err_msg = 'EXCEPTION:{}:{}:{}:Knob:{}:{}:{}'.format(__class__.__name__,sys._getframe().f_code.co_name,instance.__friendly_name,knob.ID,direction,traceback.format_exc())
                                             else:
                                                 err_msg = 'EXCEPTION:{}:{}:{}:{}:{}'.format(__class__.__name__,instance.__friendly_name,'Turned',direction,e)
@@ -7689,7 +8292,7 @@ class VirtualUI(DebugServer):
                                         try:
                                             func(slider,state,value)
                                         except Exception as e:
-                                            if sys_allowed_flag:
+                                            if sys_is_xi:
                                                 err_msg = 'EXCEPTION:{}:{}:{}:Slider:{}:{}:{}:{}'.format(__class__.__name__,sys._getframe().f_code.co_name,instance.__friendly_name,slider.ID,state,value,traceback.format_exc())
                                             else:
                                                 err_msg = 'EXCEPTION:{}:{}:{}:{}:{}:{}'.format(__class__.__name__,instance.__friendly_name,'Pressed',state,value,e)
@@ -7705,7 +8308,7 @@ class VirtualUI(DebugServer):
                                         try:
                                             func(slider,state,value)
                                         except Exception as e:
-                                            if sys_allowed_flag:
+                                            if sys_is_xi:
                                                 err_msg = 'EXCEPTION:{}:{}:{}:Slider:{}:{}:{}:{}'.format(__class__.__name__,sys._getframe().f_code.co_name,instance.__friendly_name,slider.ID,state,value,traceback.format_exc())
                                             else:
                                                 err_msg = 'EXCEPTION:{}:{}:{}:{}:{}:{}'.format(__class__.__name__,instance.__friendly_name,'Released',state,value,e)
@@ -7721,7 +8324,7 @@ class VirtualUI(DebugServer):
                                         try:
                                             func(slider,state,value)
                                         except Exception as e:
-                                            if sys_allowed_flag:
+                                            if sys_is_xi:
                                                 err_msg = 'EXCEPTION:{}:{}:{}:Slider:{}:{}:{}:{}'.format(__class__.__name__,sys._getframe().f_code.co_name,instance.__friendly_name,slider.ID,state,value,traceback.format_exc())
                                             else:
                                                 err_msg = 'EXCEPTION:{}:{}:{}:{}:{}:{}'.format(__class__.__name__,instance.__friendly_name,'Changed',state,value,e)
@@ -7746,6 +8349,110 @@ class VirtualUI(DebugServer):
                     except:
                         DebugPrint.Print('VirtualUI:__AddLevel:Warning:Unable to create label for panel={} with id={}'.format(alias,id))
                     __class__.__devTPs[alias]['Labels'][id] = {'Object':obj}
+    if check_api_version('1.10'):
+        def __AddVideo(tpList:str,idList:int):
+            for alias in tpList:
+                if alias not in __class__.__devTPs:
+                    continue
+                tp = __class__.__devTPs[alias]['Object'] #type:_UIDevice
+                for id in idList:
+                    if not __class__.check_exists(alias,'Video',id):continue
+                    if id not in __class__.__devTPs[alias]['Videos']:
+                        obj = None #type:_Video
+                        try:
+                            obj = _Video(tp,id)
+                            def fn_visibilitychanged(video:'_Video',state:'bool'):
+                                alias = video.Host.DeviceAlias
+                                for instance in __class__.__instances:
+                                    if alias in instance.__panel_aliases:
+                                        func_list = []
+                                        if video.ID in instance.__videoVisibilityChangedFunctions:
+                                            func_list.extend(instance.__videoVisibilityChangedFunctions[video.ID])
+                                        for func in func_list:
+                                            try:
+                                                func(video,state)
+                                            except Exception as e:
+                                                if sys_is_xi:
+                                                    err_msg = 'EXCEPTION:{}:{}:{}:Video:{}:{}:{}'.format(__class__.__name__,sys._getframe().f_code.co_name,instance.__friendly_name,video.ID,state,traceback.format_exc())
+                                                else:
+                                                    err_msg = 'EXCEPTION:{}:{}:{}:{}:{}'.format(__class__.__name__,instance.__friendly_name,'VisibilityChanged',state,e)
+                                                DebugPrint.Print(err_msg)
+                            def fn_streamstatechanged(video:'_Video',streamsource:'_StreamSource',state:'bool'):
+                                alias = video.Host.DeviceAlias
+                                for instance in __class__.__instances:
+                                    if alias in instance.__panel_aliases:
+                                        func_list = []
+                                        if video.ID in instance.__videoStreamStateChangedFunctions:
+                                            func_list.extend(instance.__videoStreamStateChangedFunctions[video.ID])
+                                        for func in func_list:
+                                            try:
+                                                func(video,streamsource,state)
+                                            except Exception as e:
+                                                if sys_is_xi:
+                                                    err_msg = 'EXCEPTION:{}:{}:{}:Video:{}:{}:{}:{}'.format(__class__.__name__,sys._getframe().f_code.co_name,instance.__friendly_name,video.ID,streamsource,state,traceback.format_exc())
+                                                else:
+                                                    err_msg = 'EXCEPTION:{}:{}:{}:{}:{}:{}'.format(__class__.__name__,instance.__friendly_name,'StreamStateChanged',streamsource,state,e)
+                                                DebugPrint.Print(err_msg)
+                            def fn_streamsourcechanged(video:'_Video',streamsource:'_StreamSource'):
+                                alias = video.Host.DeviceAlias
+                                for instance in __class__.__instances:
+                                    if alias in instance.__panel_aliases:
+                                        func_list = []
+                                        if video.ID in instance.__videoStreamSourceChangedFunctions:
+                                            func_list.extend(instance.__videoStreamSourceChangedFunctions[video.ID])
+                                        for func in func_list:
+                                            try:
+                                                func(video,streamsource)
+                                            except Exception as e:
+                                                if sys_is_xi:
+                                                    err_msg = 'EXCEPTION:{}:{}:{}:Video:{}:{}:{}'.format(__class__.__name__,sys._getframe().f_code.co_name,instance.__friendly_name,video.ID,streamsource,traceback.format_exc())
+                                                else:
+                                                    err_msg = 'EXCEPTION:{}:{}:{}:{}:{}'.format(__class__.__name__,instance.__friendly_name,'StreamSourceChanged',streamsource,e)
+                                                DebugPrint.Print(err_msg)
+                            def fn_streamerrorchanged(video:'_Video',streamsource:'_StreamSource',error:'str'):
+                                alias = video.Host.DeviceAlias
+                                for instance in __class__.__instances:
+                                    if alias in instance.__panel_aliases:
+                                        func_list = []
+                                        if video.ID in instance.__videoStreamErrorFunctions:
+                                            func_list.extend(instance.__videoStreamErrorFunctions[video.ID])
+                                        for func in func_list:
+                                            try:
+                                                func(video,streamsource,error)
+                                            except Exception as e:
+                                                if sys_is_xi:
+                                                    err_msg = 'EXCEPTION:{}:{}:{}:Video:{}:{}:{}:{}'.format(__class__.__name__,sys._getframe().f_code.co_name,instance.__friendly_name,video.ID,streamsource,error,traceback.format_exc())
+                                                else:
+                                                    err_msg = 'EXCEPTION:{}:{}:{}:{}:{}:{}'.format(__class__.__name__,instance.__friendly_name,'StreamStateChanged',streamsource,error,e)
+                                                DebugPrint.Print(err_msg)
+                            def fn_inputchanged(video:'_Video',input:'str'):
+                                alias = video.Host.DeviceAlias
+                                for instance in __class__.__instances:
+                                    if alias in instance.__panel_aliases:
+                                        func_list = []
+                                        if video.ID in instance.__videoInputChangedFunctions:
+                                            func_list.extend(instance.__videoInputChangedFunctions[video.ID])
+                                        for func in func_list:
+                                            try:
+                                                func(video,input)
+                                            except Exception as e:
+                                                if sys_is_xi:
+                                                    err_msg = 'EXCEPTION:{}:{}:{}:Video:{}:{}:{}'.format(__class__.__name__,sys._getframe().f_code.co_name,instance.__friendly_name,video.ID,input,traceback.format_exc())
+                                                else:
+                                                    err_msg = 'EXCEPTION:{}:{}:{}:{}:{}'.format(__class__.__name__,instance.__friendly_name,'InputChanged',input,e)
+                                                DebugPrint.Print(err_msg)
+                            obj.VisibilityChanged = fn_visibilitychanged
+                            obj.StreamStateChanged = fn_streamstatechanged
+                            obj.StreamSourceChanged = fn_streamsourcechanged
+                            obj.StreamError = fn_streamerrorchanged
+                            obj.InputChanged = fn_inputchanged
+                        except:
+                            DebugPrint.Print('VirtualUI:__AddVideo:Warning:Unable to create video for panel={} with id={}'.format(alias,id))
+                        __class__.__devTPs[alias]['Videos'][id] = {'Object':obj}
+                    obj = __class__.__devTPs[alias]['Videos'][id]
+
+
+
 
     def __init__(self,listening_port:'int'=0,friendly_name:'str'=''):
         __class__.__instances.append(self)
@@ -7793,6 +8500,16 @@ class VirtualUI(DebugServer):
         self.__sliderChangedFunctions = {} #type:dict[int,list[object]]
         self.__sliderPressedFunctions = {} #type:dict[int,list[object]]
         self.__sliderReleasedFunctions = {} #type:dict[int,list[object]]
+
+        if check_api_version('1.10'):
+            self.__videoIDs = []
+            self.__videoStreams = {} #type:dict[int,_StreamSource]
+            self.__videoInputs = {} #type:dict[int,str]
+            self.__videoVisibilityChangedFunctions = {} #type:dict[int,list[object]]
+            self.__videoStreamStateChangedFunctions = {} #type:dict[int,list[object]]
+            self.__videoStreamSourceChangedFunctions = {} #type:dict[int,list[object]]
+            self.__videoStreamErrorFunctions = {} #type:dict[int,list[object]]
+            self.__videoInputChangedFunctions = {} #type:dict[int,list[object]]
 
         self.__SyncFunctions = [] #type:list[object]
 
@@ -7848,6 +8565,8 @@ class VirtualUI(DebugServer):
         __class__.__AddLevel(tpList,self.__lvlIDs)
         __class__.__AddSlider(tpList,self.__sliderIDs)
         __class__.__AddKnob(tpList,self.__knobIDs)
+        if check_api_version('1.10'):
+            __class__.__AddVideo(tpList,self.__videoIDs)
         #DebugPrint.Print('add panels {} end add elements'.format(tpList))
 
         #resync panels for virtual panel
@@ -7961,6 +8680,7 @@ class VirtualUI(DebugServer):
         self.__print_to_trace(str_to_send)
         self.__printToServer(str_to_send)
         self.__printToLog(self.__friendly_name,'Command','Sleep')
+
     def __create_default_button_event_handler(self):
         def e(button:'_Button',state:'str'):
             str_to_send = 'event: VirtualUI({}:{}) ~ Button({},{}) {}'.format(self.__friendly_name,button.Host,button.ID,button.Name,state)
@@ -8129,6 +8849,76 @@ class VirtualUI(DebugServer):
                 if not __class__.check_exists(alias,'Label',itemID):continue
                 labellist.append(self.__devTPs[alias]['Labels'][itemID]['Object'])
         return labellist
+
+    def __create_default_video_event_handler(self,cmd):
+        if cmd == 'VisibilityChanged':
+            def e(video:'_Video',state:'str'):
+                str_to_send = 'event: VirtualUI({}:{}) ~ Video({}) ~ {}({})'.format(self.__friendly_name,video.Host,video.ID,cmd,state)
+                self.__print_to_trace(str_to_send)
+                self.__printToServer(str_to_send)
+        if cmd == 'StreamStateChanged':
+            def e(video:'_Video',streamsource:'_StreamSource',state:'str'):
+                str_to_send = 'event: VirtualUI({}:{}) ~ Video({}) ~ {}({},{})'.format(self.__friendly_name,video.Host,video.ID,cmd,streamsource.Name,state)
+                self.__print_to_trace(str_to_send)
+                self.__printToServer(str_to_send)
+        if cmd == 'StreamSourceChanged':
+            def e(video:'_Video',streamsource:'_StreamSource'):
+                if streamsource:
+                    name = streamsource.Name
+                else:
+                    name = 'None'
+                str_to_send = 'event: VirtualUI({}:{}) ~ Video({}) ~ {}({})'.format(self.__friendly_name,video.Host,video.ID,cmd,name)
+                self.__print_to_trace(str_to_send)
+                self.__printToServer(str_to_send)
+        if cmd == 'StreamError':
+            def e(video:'_Video',streamsource:'_StreamSource',err:'str'):
+                str_to_send = 'event: VirtualUI({}:{}) ~ Video({}) ~ {}({},{})'.format(self.__friendly_name,video.Host,video.ID,cmd,streamsource.Name,err)
+                self.__print_to_trace(str_to_send)
+                self.__printToServer(str_to_send)
+        if cmd == 'InputChanged':
+            def e(video:'_Video',inputname:'str'):
+                str_to_send = 'event: VirtualUI({}:{}) ~ Video({}) ~ {}({})'.format(self.__friendly_name,video.Host,video.ID,cmd,inputname)
+                self.__print_to_trace(str_to_send)
+                self.__printToServer(str_to_send)
+        return e
+    # this function adds videos to the data for the virtual panel
+    def AddVideo(self,itemIDs:'list[int]|int'):
+        if not check_api_version('1.10'):
+            DebugPrint.Print('VirtualUI:__AddVideo:Warning:Unable to create video object for panel:API version requirement not met.')
+            return
+        idList = []
+        if type(itemIDs) is type([]):
+            idList.extend(itemIDs)
+        else:
+            idList.append(itemIDs)
+        __class__.__AddVideo(self.__panel_aliases,idList)
+        for itemID in idList:
+            if itemID in self.__videoIDs:
+                continue
+            self.__videoIDs.append(itemID)
+            self.SetFunction(itemID,self.__create_default_video_event_handler('VisibilityChanged'),'VisibilityChanged')
+            self.SetFunction(itemID,self.__create_default_video_event_handler('StreamStateChanged'),'StreamStateChanged')
+            self.SetFunction(itemID,self.__create_default_video_event_handler('StreamSourceChanged'),'StreamSourceChanged')
+            self.SetFunction(itemID,self.__create_default_video_event_handler('StreamError'),'StreamError')
+            self.SetFunction(itemID,self.__create_default_video_event_handler('InputChanged'),'InputChanged')
+            self.__check_unknown_object_value('Videos',itemID)
+    def GetVideo(self,itemID):
+        if not check_api_version('1.10'):
+            DebugPrint.Print('VirtualUI:__GetVideo:Warning:Unable to get video object for panel:API version requirement not met.')
+            return
+        '''
+            Please ensure the return isn't empty before running logic.
+            When using WhereUsed lists, Addvideo doesn't necessarily create a video object.
+        '''
+        videolist = []
+        for alias in self.__panel_aliases:
+            if itemID in self.__devTPs[alias]['Videos']:
+                if not __class__.check_exists(alias,'video',itemID):continue
+                videolist.append(self.__devTPs[alias]['Videos'][itemID]['Object'])
+        return videolist
+
+
+
     # associates a button with given ID with a function for pressed action for each TP in virtual panel
     def SetFunction(self,itemIDs:'list[int]|int',function,trigger:str):
         idList = []
@@ -8197,6 +8987,38 @@ class VirtualUI(DebugServer):
                             self.__sliderReleasedFunctions[itemID].append(function)
                     else:
                         self.__sliderReleasedFunctions[itemID] = [function]
+            elif check_api_version('1.10'):
+                if itemID in self.__videoIDs:
+                    if trigger == 'VisibilityChanged':
+                        if itemID in self.__videoVisibilityChangedFunctions.keys():
+                            if function not in self.__videoVisibilityChangedFunctions[itemID]:
+                                self.__videoVisibilityChangedFunctions[itemID].append(function)
+                        else:
+                            self.__videoVisibilityChangedFunctions[itemID] = [function]
+                    if trigger == 'StreamStateChanged':
+                        if itemID in self.__videoStreamStateChangedFunctions.keys():
+                            if function not in self.__videoStreamStateChangedFunctions[itemID]:
+                                self.__videoStreamStateChangedFunctions[itemID].append(function)
+                        else:
+                            self.__videoStreamStateChangedFunctions[itemID] = [function]
+                    if trigger == 'StreamSourceChanged':
+                        if itemID in self.__videoStreamSourceChangedFunctions.keys():
+                            if function not in self.__videoStreamSourceChangedFunctions[itemID]:
+                                self.__videoStreamSourceChangedFunctions[itemID].append(function)
+                        else:
+                            self.__videoStreamSourceChangedFunctions[itemID] = [function]
+                    if trigger == 'StreamError':
+                        if itemID in self.__videoStreamErrorFunctions.keys():
+                            if function not in self.__videoStreamErrorFunctions[itemID]:
+                                self.__videoStreamErrorFunctions[itemID].append(function)
+                        else:
+                            self.__videoStreamErrorFunctions[itemID] = [function]
+                    if trigger == 'InputChanged':
+                        if itemID in self.__videoInputChangedFunctions.keys():
+                            if function not in self.__videoInputChangedFunctions[itemID]:
+                                self.__videoInputChangedFunctions[itemID].append(function)
+                        else:
+                            self.__videoInputChangedFunctions[itemID] = [function]
             else:
                 print('Setfunction Failed : invalid ID ',str(itemID))
 
@@ -8266,11 +9088,14 @@ class VirtualUI(DebugServer):
             self.__get_object_value_key('Unknown',itemID,'SetVisible'),
             self.__get_object_value_key('Unknown',itemID,'SetEnable'),
             self.__get_object_value_key('Unknown',itemID,'SetRange')]
+        elif catagory == 'Videos':
+            keys=[self.__get_object_value_key('Unknown',itemID,'SetInput'),
+            self.__get_object_value_key('Unknown',itemID,'SetStreamSource')]
         for key in keys:
             if key in self.__currentUnknownObjectStates:
                 key2 = key.replace('Unknown',catagory)
                 params = self.__currentUnknownObjectStates[key]
-                self.__currentUnknownObjectStates[key2] = copy.copy(params)
+                self.__currentUnknownObjectStates[key2] = _copy.copy(params)
                 del self.__currentUnknownObjectStates[key]
                 self.__currentObjectStates[key2] = params
                 for alias in self.__panel_aliases:
@@ -8498,6 +9323,7 @@ class VirtualUI(DebugServer):
                 key = self.__get_object_value_key('Unknown',itemID,'SetEnable')
                 self.__set_object_value(key,[value])
                 print('SetEnable Failed : invalid ID ',str(itemID))
+
     def SetVisible(self,itemIDs:'list[int]|int',value:bool,tps:'_UIDevice|list[_UIDevice]|str'='All'):
         panel_aliases = self.__get_tp_aliases(tps)
         idList = []
@@ -8566,6 +9392,22 @@ class VirtualUI(DebugServer):
                     self.__print_to_trace(str_to_send)
                     self.__printToServer(str_to_send)
                     self.__printToLog(self.__friendly_name,'Command','SetVisible,{},{},{},{}'.format(type(item).__name__,item.ID,item.Name,value))
+            elif check_api_version('1.10'):
+                if itemID in self.__videoIDs:
+                    key = self.__get_object_value_key('Videos',itemID,'SetVisible')
+                    self.__set_object_value(key,[value])
+                    item = None #type:_Video
+                    for alias in panel_aliases:
+                        if not __class__.check_exists(alias,'Video',itemID):continue
+                        item = self.__devTPs[alias]['Videos'][itemID]['Object']
+                        if item:
+                            item.SetVisible(value)
+                    if item:
+                        if tps != 'All':tps = panel_aliases
+                        str_to_send = 'command: VirtualUI({}:{}) ~ {}({},{}) ~ SetVisible({})'.format(self.__friendly_name,tps,type(item).__name__,item.ID,item.Name,value)
+                        self.__print_to_trace(str_to_send)
+                        self.__printToServer(str_to_send)
+                        self.__printToLog(self.__friendly_name,'Command','SetVisible,{},{},{},{}'.format(type(item).__name__,item.ID,item.Name,value))
             else:
                 key = self.__get_object_value_key('Unknown',itemID,'SetVisible')
                 self.__set_object_value(key,[value])
@@ -8659,6 +9501,69 @@ class VirtualUI(DebugServer):
             else:
                 print('Inc Failed : invalid ID ',str(itemID))
 
+    def SetInput(self,itemIDs:'list[int]|int',input:'str',tps:'_UIDevice|list[_UIDevice]|str'='All'):
+        if not check_api_version('1.10'):
+            DebugPrint.Print('VirtualUI:SetInput:Warning:Unable to set input for video ui object:API version requirement not met.')
+            return
+        panel_aliases = self.__get_tp_aliases(tps)
+        idList = []
+        if type(itemIDs) is type([]):
+            idList.extend(itemIDs)
+        else:
+            idList.append(itemIDs)
+        for itemID in idList:
+            if itemID in self.__videoIDs:
+                item = None #type:_Video
+                for alias in panel_aliases:
+                    if not __class__.check_exists(alias,'Video',itemID):continue
+                    item = self.__devTPs[alias]['Videos'][itemID]['Object']
+                    if item:
+                        item.SetInput(input)
+                if item:
+                    if tps != 'All':tps = panel_aliases
+                    str_to_send = 'command: VirtualUI({}:{}) ~ {}({},{}) ~ SetInput({})'.format(self.__friendly_name,tps,'Video',item.ID,item.Name,input)
+                    self.__print_to_trace(str_to_send)
+                    self.__printToServer(str_to_send)
+                    self.__printToLog(self.__friendly_name,'Command','SetInput,{},{},{},{}'.format('Video',item.ID,item.Name,input))
+            else:
+                print('Dec Failed : invalid ID ',str(itemID))
+    def SetStreamSource(self,itemIDs:'list[int]|int',source:'_StreamSource|str|None',tps:'_UIDevice|list[_UIDevice]|str'='All'):
+        if not check_api_version('1.10'):
+            DebugPrint.Print('VirtualUI:SetStreamSource:Warning:Unable to set stream source for video ui object:API version requirement not met.')
+            return
+        panel_aliases = self.__get_tp_aliases(tps)
+        idList = []
+        if type(source) == str:
+            if source in StreamSourceWrapper.instances:
+                source = StreamSourceWrapper.instances[source].Device
+            else:
+                source = None
+        elif type(source) == StreamSourceWrapper:
+            source = source.Device
+        if type(itemIDs) is type([]):
+            idList.extend(itemIDs)
+        else:
+            idList.append(itemIDs)
+        for itemID in idList:
+            if itemID in self.__videoIDs:
+                item = None #type:_Video
+                for alias in panel_aliases:
+                    if not __class__.check_exists(alias,'Video',itemID):continue
+                    item = self.__devTPs[alias]['Videos'][itemID]['Object']
+                    if item:
+                        item.SetStreamSource(source)
+                if item:
+                    if tps != 'All':tps = panel_aliases
+                    streamname = None
+                    if source:
+                        streamname = source.Name
+                    str_to_send = 'command: VirtualUI({}:{}) ~ {}({},{}) ~ SetStreamSource({})'.format(self.__friendly_name,tps,'Video',item.ID,item.Name,streamname)
+                    self.__print_to_trace(str_to_send)
+                    self.__printToServer(str_to_send)
+                    self.__printToLog(self.__friendly_name,'Command','SetStreamSource,{},{},{},{}'.format('Video',item.ID,item.Name,streamname))
+            else:
+                print('SetStreamSource Failed : invalid ID ',str(itemID))
+
     def SimulateAction(self,itemID:int,action:str,value:str=None,panel_alias=None):
         str_to_send = 'command: VirtualUI({}) ~ Button({}) ~ SimulateAction ~ {}'.format(self.__friendly_name,itemID,action)
         self.__print_to_trace(str_to_send)
@@ -8746,7 +9651,7 @@ class VirtualUI(DebugServer):
             try:
                 temp_dict = _json.loads(temp)
             except Exception as e:
-                if sys_allowed_flag:
+                if sys_is_xi:
                     err_msg = 'EXCEPTION:{}:{}:{}:SetState:{}'.format(__class__.__name__,sys._getframe().f_code.co_name,self.__friendly_name,traceback.format_exc())
                 else:
                     err_msg = 'EXCEPTION:{}:{}:{}:{}'.format(__class__.__name__,self.__friendly_name,'HandleReceiveFromServer:SetState',e)
@@ -8771,7 +9676,7 @@ class VirtualUI(DebugServer):
             try:
                 temp_dict = _json.loads(temp)
             except Exception as e:
-                if sys_allowed_flag:
+                if sys_is_xi:
                     err_msg = 'EXCEPTION:{}:{}:{}:SetText:{}'.format(__class__.__name__,sys._getframe().f_code.co_name,self.__friendly_name,traceback.format_exc())
                 else:
                     err_msg = 'EXCEPTION:{}:{}:{}:{}'.format(__class__.__name__,self.__friendly_name,'HandleReceiveFromServer:SetText',e)
@@ -8792,7 +9697,7 @@ class VirtualUI(DebugServer):
             try:
                 temp_dict = _json.loads(temp)
             except Exception as e:
-                if sys_allowed_flag:
+                if sys_is_xi:
                     err_msg = 'EXCEPTION:{}:{}:{}:SetBlinking:{}'.format(__class__.__name__,sys._getframe().f_code.co_name,self.__friendly_name,traceback.format_exc())
                 else:
                     err_msg = 'EXCEPTION:{}:{}:{}:{}'.format(__class__.__name__,self.__friendly_name,'HandleReceiveFromServer:SetBlinking',e)
@@ -8818,7 +9723,7 @@ class VirtualUI(DebugServer):
             try:
                 temp_dict = _json.loads(temp)
             except Exception as e:
-                if sys_allowed_flag:
+                if sys_is_xi:
                     err_msg = 'EXCEPTION:{}:{}:{}:CustomBlink:{}'.format(__class__.__name__,sys._getframe().f_code.co_name,self.__friendly_name,traceback.format_exc())
                 else:
                     err_msg = 'EXCEPTION:{}:{}:{}:{}'.format(__class__.__name__,self.__friendly_name,'HandleReceiveFromServer:CustomBlink',e)
@@ -8844,7 +9749,7 @@ class VirtualUI(DebugServer):
             try:
                 temp_dict = _json.loads(temp)
             except Exception as e:
-                if sys_allowed_flag:
+                if sys_is_xi:
                     err_msg = 'EXCEPTION:{}:{}:{}:SetLevel:{}'.format(__class__.__name__,sys._getframe().f_code.co_name,self.__friendly_name,traceback.format_exc())
                 else:
                     err_msg = 'EXCEPTION:{}:{}:{}:{}'.format(__class__.__name__,self.__friendly_name,'HandleReceiveFromServer:SetLevel',e)
@@ -8869,7 +9774,7 @@ class VirtualUI(DebugServer):
             try:
                 temp_dict = _json.loads(temp)
             except Exception as e:
-                if sys_allowed_flag:
+                if sys_is_xi:
                     err_msg = 'EXCEPTION:{}:{}:{}:SetFill:{}'.format(__class__.__name__,sys._getframe().f_code.co_name,self.__friendly_name,traceback.format_exc())
                 else:
                     err_msg = 'EXCEPTION:{}:{}:{}:{}'.format(__class__.__name__,self.__friendly_name,'HandleReceiveFromServer:SetFill',e)
@@ -8894,7 +9799,7 @@ class VirtualUI(DebugServer):
             try:
                 temp_dict = _json.loads(temp)
             except Exception as e:
-                if sys_allowed_flag:
+                if sys_is_xi:
                     err_msg = 'EXCEPTION:{}:{}:{}:SetEnable:{}'.format(__class__.__name__,sys._getframe().f_code.co_name,self.__friendly_name,traceback.format_exc())
                 else:
                     err_msg = 'EXCEPTION:{}:{}:{}:{}'.format(__class__.__name__,self.__friendly_name,'HandleReceiveFromServer:SetEnable',e)
@@ -8918,7 +9823,7 @@ class VirtualUI(DebugServer):
             try:
                 temp_dict = _json.loads(temp)
             except Exception as e:
-                if sys_allowed_flag:
+                if sys_is_xi:
                     err_msg = 'EXCEPTION:{}:{}:{}:SetVisible:{}'.format(__class__.__name__,sys._getframe().f_code.co_name,self.__friendly_name,traceback.format_exc())
                 else:
                     err_msg = 'EXCEPTION:{}:{}:{}:{}'.format(__class__.__name__,self.__friendly_name,'HandleReceiveFromServer:SetVisible',e)
@@ -8974,7 +9879,7 @@ class VirtualUI(DebugServer):
             try:
                 temp_dict = _json.loads(temp)
             except Exception as e:
-                if sys_allowed_flag:
+                if sys_is_xi:
                     err_msg = 'EXCEPTION:{}:{}:{}:Dec:{}'.format(__class__.__name__,sys._getframe().f_code.co_name,self.__friendly_name,traceback.format_exc())
                 else:
                     err_msg = 'EXCEPTION:{}:{}:{}:{}'.format(__class__.__name__,self.__friendly_name,'HandleReceiveFromServer:Dec',e)
@@ -8994,7 +9899,7 @@ class VirtualUI(DebugServer):
             try:
                 temp_dict = _json.loads(temp)
             except Exception as e:
-                if sys_allowed_flag:
+                if sys_is_xi:
                     err_msg = 'EXCEPTION:{}:{}:{}:Inc:{}'.format(__class__.__name__,sys._getframe().f_code.co_name,self.__friendly_name,traceback.format_exc())
                 else:
                     err_msg = 'EXCEPTION:{}:{}:{}:{}'.format(__class__.__name__,self.__friendly_name,'HandleReceiveFromServer:Inc',e)
@@ -9009,13 +9914,61 @@ class VirtualUI(DebugServer):
                 temp1 = None
             if self.__interface and temp1:
                 self.Inc(temp1)
+        if 'SetInput(' in serverBuffer:
+            temp = serverBuffer[serverBuffer.find('(')+1:serverBuffer.rfind(')')]
+            try:
+                temp_dict = _json.loads(temp)
+            except Exception as e:
+                if sys_is_xi:
+                    err_msg = 'EXCEPTION:{}:{}:{}:SetInput:{}'.format(__class__.__name__,sys._getframe().f_code.co_name,self.__friendly_name,traceback.format_exc())
+                else:
+                    err_msg = 'EXCEPTION:{}:{}:{}:{}'.format(__class__.__name__,self.__friendly_name,'HandleReceiveFromServer:SetInput',e)
+                print(err_msg)
+                DebugPrint.Print(err_msg)
+                _ProgramLog(err_msg)
+                return
+            temp1=temp_dict['value1']
+            try:
+                temp1 = [int(i) for i in temp1]
+            except:
+                temp1 = None
+            try:
+                temp2 = temp_dict['value2']
+            except:
+                temp2 = None
+            if self.__interface and temp1 and temp2:
+                self.SetInput(temp1,temp2)
+        if 'SetStreamSource(' in serverBuffer:
+            temp = serverBuffer[serverBuffer.find('(')+1:serverBuffer.rfind(')')]
+            try:
+                temp_dict = _json.loads(temp)
+            except Exception as e:
+                if sys_is_xi:
+                    err_msg = 'EXCEPTION:{}:{}:{}:SetInput:{}'.format(__class__.__name__,sys._getframe().f_code.co_name,self.__friendly_name,traceback.format_exc())
+                else:
+                    err_msg = 'EXCEPTION:{}:{}:{}:{}'.format(__class__.__name__,self.__friendly_name,'HandleReceiveFromServer:SetInput',e)
+                print(err_msg)
+                DebugPrint.Print(err_msg)
+                _ProgramLog(err_msg)
+                return
+            temp1=temp_dict['value1']
+            temp2=temp_dict['value2']
+            try:
+                temp1 = [int(i) for i in temp1]
+            except:
+                temp1 = None
+            if temp2 == 'None':
+                temp2 = None
+            if self.__interface and temp1:
+                self.SetStreamSource(temp1,temp2)
+
         if 'Emulate(' in serverBuffer:
             print('in emulate button')
             temp = serverBuffer[serverBuffer.find('(')+1:serverBuffer.rfind(')')]
             try:
                 temp_dict = _json.loads(temp)
             except Exception as e:
-                if sys_allowed_flag:
+                if sys_is_xi:
                     err_msg = 'EXCEPTION:{}:{}:{}:Emulate:{}'.format(__class__.__name__,sys._getframe().f_code.co_name,self.__friendly_name,traceback.format_exc())
                 else:
                     err_msg = 'EXCEPTION:{}:{}:{}:{}'.format(__class__.__name__,self.__friendly_name,'HandleReceiveFromServer:Emulate',e)
@@ -9023,7 +9976,6 @@ class VirtualUI(DebugServer):
                 DebugPrint.Print(err_msg)
                 _ProgramLog(err_msg)
                 return
-            print('in emulate button:{}'.format(temp_dict))
             temp1 = temp_dict['value1']
             temp2 = temp_dict['value2']
             temp3 = temp_dict['value3']
@@ -9039,7 +9991,7 @@ class VirtualUI(DebugServer):
             try:
                 temp_dict = _json.loads(temp)
             except Exception as e:
-                if sys_allowed_flag:
+                if sys_is_xi:
                     err_msg = 'EXCEPTION:{}:{}:{}:ShowPage:{}'.format(__class__.__name__,sys._getframe().f_code.co_name,self.__friendly_name,traceback.format_exc())
                 else:
                     err_msg = 'EXCEPTION:{}:{}:{}:{}'.format(__class__.__name__,self.__friendly_name,'HandleReceiveFromServer:ShowPage',e)
@@ -9055,7 +10007,7 @@ class VirtualUI(DebugServer):
             try:
                 temp_dict = _json.loads(temp)
             except Exception as e:
-                if sys_allowed_flag:
+                if sys_is_xi:
                     err_msg = 'EXCEPTION:{}:{}:{}:ShowPopup:{}'.format(__class__.__name__,sys._getframe().f_code.co_name,self.__friendly_name,traceback.format_exc())
                 else:
                     err_msg = 'EXCEPTION:{}:{}:{}:{}'.format(__class__.__name__,self.__friendly_name,'HandleReceiveFromServer:ShowPopup',e)
@@ -9076,7 +10028,7 @@ class VirtualUI(DebugServer):
             try:
                 temp_dict = _json.loads(temp)
             except Exception as e:
-                if sys_allowed_flag:
+                if sys_is_xi:
                     err_msg = 'EXCEPTION:{}:{}:{}:HidePopupGroup:{}'.format(__class__.__name__,sys._getframe().f_code.co_name,self.__friendly_name,traceback.format_exc())
                 else:
                     err_msg = 'EXCEPTION:{}:{}:{}:{}'.format(__class__.__name__,self.__friendly_name,'HandleReceiveFromServer:HidePopupGroup',e)
@@ -9096,7 +10048,7 @@ class VirtualUI(DebugServer):
             try:
                 temp_dict = _json.loads(temp)
             except Exception as e:
-                if sys_allowed_flag:
+                if sys_is_xi:
                     err_msg = 'EXCEPTION:{}:{}:{}:HidePopup:{}'.format(__class__.__name__,sys._getframe().f_code.co_name,self.__friendly_name,traceback.format_exc())
                 else:
                     err_msg = 'EXCEPTION:{}:{}:{}:{}'.format(__class__.__name__,self.__friendly_name,'HandleRecieveFromServer:HidePopup',e)
@@ -9125,7 +10077,7 @@ class VirtualUI(DebugServer):
             try:
                 temp_dict = _json.loads(temp)
             except Exception as e:
-                if sys_allowed_flag:
+                if sys_is_xi:
                     err_msg = 'EXCEPTION:{}:{}:{}:Option:{}'.format(__class__.__name__,sys._getframe().f_code.co_name,self.__friendly_name,traceback.format_exc())
                 else:
                     err_msg = 'EXCEPTION:{}:{}:{}:{}'.format(__class__.__name__,self.__friendly_name,'Option',e)
@@ -9148,3 +10100,989 @@ class VirtualUI(DebugServer):
     def __print_to_trace(self,value):
         if self.__enable_print_to_trace:
             print(value)
+
+
+"""
+Implementation methods: Within Program and using JSON File or Mixed.
+The constructor will only allow one instance to be defined, further calls to the constructor just returns the already defined instance.
+
+Within program:
+    Usage is very similar to how the GVE module works in the helpfile of the module.
+        from tools import GVEInterfaceWrapper
+        gve = GVEInterfaceWrapper(hostname,host_device,ipport,,interface)
+
+    Use the SubscribeStatus function to subscribe to feedback:
+        def gve_connectionstatus_handler(gve_interface,status):
+            if status == 'Connected:
+                pass
+            if status == 'Disconnected:
+                pass
+        gve.SubscribeStatus('ConnectionStatus',gve_connectionstatus_handler)
+
+        def gve_room_event_handler(gve_interface,details):
+            if 'SystemOff' in details[2]:
+                power_system_off()
+            if 'SystemOn' in details[2]:
+                power_system_on()
+        gve.SubscribeStatus('ReceiveGVERoomEvent',gve_room_event_handler)
+        gve.SubscribeStatus('ReceiveGVERoomEvent',gve_room_event_handler)
+
+        def gve_command_event_handler(gve_interface,details):
+            if details[0] = device1_id:
+                #command is always 'Power'
+                device1.Set('Power',details[2])
+        gve.SubscribeStatus('ReceiveGVECommand',gve_command_event_handler)
+
+    Use the SendStatus command to send an update to the GVE server
+        gve.SendStatus(device_id,command,value)
+            possible commands to send to gve on a device
+                'Power','Source','Connection','Lamp 1 Hours','Lamp 2 Hours','Lamp 3 Hours','Lamp 4 Hours','Filter Hours','Device Status'
+            possible values for 'Power'
+                'On','Off'
+            possible values for 'Connection
+                'Unknown','Disconnected','Connected','Offline','Online'
+            possible values for 'Lamp X Hours' and 'Filter Hours'
+                ASCII digits [0-9]
+            possilble values for 'Source'
+                any string value
+
+    Use the SendSecondaryProcessorStatus command to send an update to the GVE server on a secondaryprocessordevice
+        gve.SendSecondaryProcessorStatus(device_object,value)
+            possible status to send to gve server on a secondaryprocessordevice :
+                'Unknown','Disconnected','Connected','Offline','Online'
+
+        to report non-standard command updates to the gve server, make a new device and give it a source type attribute.
+        name the device in GVE so it references the actual device and the command. aka, 'Projector Current Input' or 'Switch Output 1 Source'
+
+With JSON file:
+    Use an SFTP client to transfer the json formatted configuration file to the primary controller.  Place it in the root directory and the file name must end in 'gve.json'
+    I have provided a method to automatically poll devices for status in the case the base program does not do it already.
+    In cases where devices such as displays or cameras are daisy-chained and run on the same module instance, the module may have to be modifed so that the device id
+    is a qualifier item instead of set on the module.  This is an example valid config file.  Note all values are string type.
+    The only property that is required under any device is 'GVE Device ID'; all else are optional as needed.
+    Comments are just there for explanation and have no effect on the configuration:
+        {
+            "Server Information":
+            {
+                "Hostname":"1.1.1.1",
+                "IPPort":"5555",
+                "Interface":"Any",
+                "Host Device Alias":"ProcessorAlias"
+            },
+            "Panel1":
+            {
+                "Comment":"Power, Standby, OnlineStatus, OfflineStatus, and ConnectionStatus are automatically done",
+                "GVE Device ID":"10"
+            },
+            "testdevice":
+            {
+                "Comment":"If value does not populate in GVE, the program probably does not poll the attribute, you may add Poll Interval (in seconds) to force query the attribute",
+                "GVE Device ID":"20",
+                "Custom Status":[
+                    {
+                        "GVE Device ID":"21",
+                        "Command":"AudioMute",
+                        "Value Map":{"On":"Mute On","Off":"Mute Off"},
+                        "Poll Interval":"30"
+                    },
+                    {
+                        "GVE Device ID":"22",
+                        "Command":"HDCPInputStatus",
+                        "Qualifier":{"Input":"1"},
+                        "Value Map":{"Enabled":"HDCP Enabled","Disabled":"HDCP Disabled"},
+                        "Poll Interval":"30"
+                    },
+                    {
+                        "GVE Device ID":"23",
+                        "Command":"HDCPInputStatus",
+                        "Qualifier":{"Input":"2"},
+                        "Value Map":{"Enabled":"HDCP Enabled","Disabled":"HDCP Disabled"},
+                        "Poll Interval":"30"
+                    }
+                ]
+            },
+            "testdisplays:1":
+            {
+                "Comment": "In the text after the colon is the Device ID if needed to be passed to the module",
+                "Comment2":"If Poll Interval is in the root of the device, Power or Standby is polled if the device's module supports them",
+                "GVE Device ID":"30",
+                "Poll Interval":"10"
+            },
+            "testdisplays:2":
+            {
+                "GVE Device ID":"40",
+                "Poll Interval":"10"
+            },
+            "testdisplays:3":
+            {
+                "GVE Device ID":"50",
+                "Poll Interval":"10",
+                "Custom Status":[
+                    {
+                        "GVE Device ID":"51",
+                        "Command":"Mute",
+                        "Qualifier":{"Device ID":"3"},
+                        "Value Map":{"On":"Mute On","Off":"Mute Off"},
+                        "Poll Interval":"30"
+                    },
+                    {
+                        "GVE Device ID":"52",
+                        "Command":"Volume",
+                        "Qualifier":{"Device ID":"3"},
+                        "Poll Interval":"30"
+                    }
+                ]
+            },
+            "testprojector":
+            {
+                "Comment":"Power, Standby, OnlineStatus, OfflineStatus, and ConnectionStatus are automatically done, In the text after the colon is the Device ID if needed to be passed to the module",
+                "GVE Device ID":"60",
+                "Poll Interval":"10",
+                "Lamp Status":[
+                    {
+                        "Comment":"There can be up to 4 Lamp status, the qualifier is optional and used only if needed by the device module",
+                        "Command":"LampUsage",
+                        "Poll Interval":"30"
+                    }
+                ]
+            }
+        }
+
+With Mixed method:
+    Implement the JSON configuration file and use the library in your code as normal to append more functionality, such as the startup and shutdown
+    use the constructor :
+        gve = GVEInterfaceWrapper()
+    and it will return the instance created by the config file.
+    If there is no config file, it'll
+
+"""
+class GVEInterfaceWrapper(DebugServer):
+    instances = {} #type:dict[str,GVEInterfaceWrapper]
+    def __new__(cls,Hostname:'str'='',HostDevice:'_ProcessorDevice'=None,IPPort=5555,Interface='Any'):
+        #only one instance of this module is allowed
+        num_instances = len(cls.instances)
+        if num_instances > 0:
+            for hostname in cls.instances.keys():
+                return cls.instances[hostname]
+        instance = super().__new__(cls)
+        cls.instances[Hostname] = instance
+        return instance
+    def __init__(self,Hostname:'str'='',HostDevice:'_ProcessorDevice'=None,IPPort=5555,Interface='Any'):
+        if hasattr(self,"Commands"):
+            return
+        self.__interface_type = 'GVE'
+        self.__listening_port = 0
+        self.__friendly_name = 'GVE'
+        self.key = self.__friendly_name
+
+        self.EnableFileLogging = True
+
+        self.__enable_print_to_trace = self._DebugServer__get_nv_option(self.__listening_port)
+        self.__connectionstatus_event_callbacks = []
+        self.__diagnosticsendtext_event_callbacks = []
+        self.__diagnosticreceivetext_event_callbacks = []
+        self.__receivegvecommand_event_callbacks = []
+        self.__receivegveroomevent_event_callbacks =[]
+        self.__interface = None #type:_gveClient
+        self.device = self.__interface
+        self.__Hostname = Hostname
+        self.__IPPort = IPPort
+        self.__Interface = Interface
+        self.HostDevice = HostDevice
+        self.Commands = {
+            'ConnectionStatus':{'Status':{'Live':'Disconnected'}},
+            'SendStatus':{'Status':{}},
+            'SendSecondaryProcessorStatus':{'Status':{}},
+            'EnableStatus':{'Status':{'Live':'Disabled'}},
+            'ReceiveGVECommand':{'Status':{}},
+            'ReceiveGVERoomEvent':{'Status':{}},
+            }
+        if self.__Hostname and self.__IPPort and self.HostDevice:
+            self.__enable()
+
+    def __eq__(self,other):
+        if type(self) != type(other):return False
+        return self.key == other.key
+
+    def __enable(self):
+        str_to_send = 'command: GVEServer ~ Enable()'
+        self.__print_to_trace(str_to_send)
+        self.__printToServer(str_to_send)
+        self.__printToLog(self.__friendly_name,'Command','Enable')
+        if not self.__listening_port:
+            self.__listening_port = self._DebugServer__create_listening_port()
+        self.__interface = _gveClient(self.Hostname,self.HostDevice,self.IPPort,self.Interface) #type:_gveClient
+        self.device = self.__interface
+        def printToDebugSend(cmd):
+            self.__printToServer('>>{0}'.format(cmd))
+            self.__printToLog(self.__friendly_name,'API,To Device',cmd)
+        self.__interface.printToDebugSend = printToDebugSend
+        def printToDebugReceive(ret):
+            self.__printToServer('<<{0}'.format(ret))
+            self.__printToLog(self.__friendly_name,'API,From Device',ret)
+        self.__interface.printToDebugReceive = printToDebugReceive
+        self.__interface.Commands = self.Commands
+        self.__interface.GetHostname = self.GetHostname
+        self.__interface.Protocol = 'UDP'
+        self.__interface.ServicePort = None
+        self.__interface.Credentials = None
+
+
+        @_event(self.__interface,'GVEServerConnected')
+        def handleGVEServerConnected(interface,state):
+            state = 'Connected'
+            self.Commands['ConnectionStatus']['Status']['Live'] = state
+            update = {'command':'ConnectionStatus','value':state,'qualifier':None}
+            self._DebugServer__send_interface_status(self.__listening_port,update)
+            str_to_send = 'event: GVEServer({}) ~ ConnectionStatus {}'.format(self.__friendly_name,state)
+            self.__print_to_trace(str_to_send)
+            self.__printToServer(str_to_send)
+            self.__printToLog(self.__friendly_name,'Event','ConnectionStatus,{}'.format(state))
+            for f in self.__connectionstatus_event_callbacks:
+                try:
+                    f(interface,state)
+                except Exception as e:
+                    if sys_is_xi:
+                        err_msg = 'EXCEPTION:{}:{}:{}:{}'.format(__class__.__name__,sys._getframe().f_code.co_name,self.__friendly_name,traceback.format_exc())
+                    else:
+                        err_msg = 'EXCEPTION:{}:{}:{}:{}'.format(__class__.__name__,self.__friendly_name,'Online',e)
+                    print(err_msg)
+                    DebugPrint.Print(err_msg)
+                    _ProgramLog(err_msg)
+        @_event(self.__interface,'GVEServerDisconnected')
+        def handleGVEServerDisconnected(interface,state):
+            state = 'Disconnected'
+            self.Commands['ConnectionStatus']['Status']['Live'] = state
+            update = {'command':'ConnectionStatus','value':state,'qualifier':None}
+            self._DebugServer__send_interface_status(self.__listening_port,update)
+            str_to_send = 'event: GVEServer({}) ~ ConnectionStatus {}'.format(self.__friendly_name,state)
+            self.__print_to_trace(str_to_send)
+            self.__printToServer(str_to_send)
+            self.__printToLog(self.__friendly_name,'Event','ConnectionStatus,{}'.format(state))
+            for f in self.__connectionstatus_event_callbacks:
+                try:
+                    f(interface,state)
+                except Exception as e:
+                    if sys_is_xi:
+                        err_msg = 'EXCEPTION:{}:{}:{}:{}'.format(__class__.__name__,sys._getframe().f_code.co_name,self.__friendly_name,traceback.format_exc())
+                    else:
+                        err_msg = 'EXCEPTION:{}:{}:{}:{}'.format(__class__.__name__,self.__friendly_name,'Offline',e)
+                    print(err_msg)
+                    DebugPrint.Print(err_msg)
+                    _ProgramLog(err_msg)
+        @_event(self.__interface,'ReceiveGVECommand')
+        def handleReceiveGVECommand(interface,details:'tuple'):
+            str_to_send = 'event: GVEServer({}) ~ ReceiveGVECommand {} {} {}'.format(self.__friendly_name,details[0],details[1],details[2])
+            self.__print_to_trace(str_to_send)
+            self.__printToServer(str_to_send)
+            self.__printToLog(self.__friendly_name,'Event','ReceiveGVECommand,{},{},{}'.format(details[0],details[1],details[2]))
+            for f in self.__receivegvecommand_event_callbacks:
+                try:
+                    f(interface,details)
+                except Exception as e:
+                    if sys_is_xi:
+                        err_msg = 'EXCEPTION:{}:{}:{}:{}'.format(__class__.__name__,sys._getframe().f_code.co_name,self.__friendly_name,traceback.format_exc())
+                    else:
+                        err_msg = 'EXCEPTION:{}:{}:{}:{}'.format(__class__.__name__,self.__friendly_name,'ReceiveGVECommand',e)
+                    print(err_msg)
+                    DebugPrint.Print(err_msg)
+                    _ProgramLog(err_msg)
+        @_event(self.__interface,'ReceiveGVERoomEvent')
+        def handleReceiveGVERoomEvent(interface,details:'tuple'):
+            str_to_send = 'event: GVEServer({}) ~ ReceiveGVERoomEvent {}'.format(self.__friendly_name,details)
+            self.__print_to_trace(str_to_send)
+            self.__printToServer(str_to_send)
+            self.__printToLog(self.__friendly_name,'Event','ReceiveGVERoomEvent,{}'.format(details))
+            for f in self.__receivegvecommand_event_callbacks:
+                try:
+                    f(interface,details)
+                except Exception as e:
+                    if sys_is_xi:
+                        err_msg = 'EXCEPTION:{}:{}:{}:{}'.format(__class__.__name__,sys._getframe().f_code.co_name,self.__friendly_name,traceback.format_exc())
+                    else:
+                        err_msg = 'EXCEPTION:{}:{}:{}:{}'.format(__class__.__name__,self.__friendly_name,'ReceiveGVERoomEvent',e)
+                    print(err_msg)
+                    DebugPrint.Print(err_msg)
+                    _ProgramLog(err_msg)
+        self._DebugServer__add_instance(self.__listening_port,self,self.__friendly_name,self.__interface_type)
+        self.Commands['EnableStatus']['Status']['Live'] = 'Enabled'
+        str_to_send = 'event: GVEServer({}) ~ EnableStatus {}'.format(self.__friendly_name,'Enabled')
+        self.__print_to_trace(str_to_send)
+        self.__printToServer(str_to_send)
+        self.__printToLog(self.__friendly_name,'Event','EnableStatus,{}'.format('Enabled'))
+
+
+    def GetInterface(self):
+        return self.__interface
+    def GetInterfaceType(self):
+        return self.__interface_type
+    def GetHostname(self):
+        return self.__Hostname
+
+    def SubscribeStatus(self,command,function):
+        if command == 'ConnectionStatus':
+            self.__connectionstatus_event_callbacks.append(function)
+        if command == 'DiagnosticSendText':
+            self.__diagnosticsendtext_event_callbacks.append(function)
+        if command == 'DiagnosticRecieveText':
+            self.__diagnosticreceivetext_event_callbacks.append(function)
+        if command == 'ReceiveGVECommand':
+            self.__receivegvecommand_event_callbacks.append(function)
+        if command == 'ReceiveGVERoomEvent':
+            self.__receivegveroomevent_event_callbacks.append(function)
+
+    def SendStatus(self,device:str,command:str,value:str):
+        if not self.device:return
+        str_to_send = 'command: GVEServer({}) ~ SendStatus({},{},{})'.format(self.__friendly_name,device,command,value)
+        self.__print_to_trace(str_to_send)
+        self.__printToServer(str_to_send)
+        self.__printToLog(self.__friendly_name,'Command','SendStatus')
+        self.__interface.SendStatus(device,command,str(value))
+
+    def SendSecondaryProcessorStatus(self,device:_ProcessorDevice,value:str):
+        if not self.device:return
+        str_to_send = 'command: GVEServer({}) ~ SendSecondaryProcessorStatus({},{})'.format(self.__friendly_name,device,value)
+        self.__print_to_trace(str_to_send)
+        self.__printToServer(str_to_send)
+        self.__printToLog(self.__friendly_name,'Command','SendSecondaryProcessorStatus')
+        self.__interface.SendSecondaryProcessorStatus(device,value)
+
+    def __printToLog(self,device,message_type,data):
+        if(self.EnableFileLogging):
+            DebugFileLogSaver.AddLog(device,message_type,data)
+
+    def __printToServer(self,string):
+        timestamp = str(_datetime.now())
+        str_to_send = repr(string)
+        str_to_send = '{} {}'.format(timestamp,str_to_send[1:])
+        self._DebugServer__send_interface_communication(self.__listening_port,str_to_send)
+
+    @property
+    def Device(self):
+        return self.__interface
+    @property
+    def Hostname(self):
+        return self.__Hostname
+    @property
+    def IPPort(self):
+        return self.__IPPort
+    @property
+    def Interface(self):
+        return self.__Interface
+
+    def HandleReceiveFromServer(self,client,data:'bytes'):
+        serverBuffer = ''
+        try:
+            serverBuffer += data.decode()
+        except:
+            serverBuffer += data
+        print(serverBuffer)
+        if 'SendStatus(' in serverBuffer:
+            temp = serverBuffer[serverBuffer.find('(')+1:serverBuffer.rfind(')')]
+            try:
+                temp_dict = _json.loads(temp)
+            except Exception as e:
+                if sys_is_xi:
+                    err_msg = 'EXCEPTION:{}:{}:{}:SendStatus:{}'.format(__class__.__name__,sys._getframe().f_code.co_name,self.__friendly_name,traceback.format_exc())
+                else:
+                    err_msg = 'EXCEPTION:{}:{}:{}:{}'.format(__class__.__name__,self.__friendly_name,'HandleReceiveFromServer:SendStatus',e)
+                print(err_msg)
+                DebugPrint.Print(err_msg)
+                _ProgramLog(err_msg)
+                return
+            temps = [temp_dict['value1'],temp_dict['value2'],temp_dict['value3']]
+            if self.__interface and temp is not None:
+                if 'Hours' in temps[1]:
+                    try:
+                        int(temps[1])
+                    except:return
+                if temps[1] == 'Device Status' and temps[2] not in ['Warning','Normal','Error']:return
+                if temps[1] == 'Connection' and temps[2] not in ['Unknown','Disconnected','Connected','Online','Offline']:return
+                if temps[1] == 'Power' and temps[2] not in ['Unknown','On','Off','Warming Up','Cooling Down']:return
+                self.SendStatus(temps[0],temps[1],temps[2])
+        if 'SendSecondaryProcessorStatus(' in serverBuffer:
+            temp = serverBuffer[serverBuffer.find('(')+1:serverBuffer.rfind(')')]
+            try:
+                temp_dict = _json.loads(temp)
+            except Exception as e:
+                if sys_is_xi:
+                    err_msg = 'EXCEPTION:{}:{}:{}:SendSecondaryProcessorStatus:{}'.format(__class__.__name__,sys._getframe().f_code.co_name,self.__friendly_name,traceback.format_exc())
+                else:
+                    err_msg = 'EXCEPTION:{}:{}:{}:{}'.format(__class__.__name__,self.__friendly_name,'HandleReceiveFromServer:SendSecondaryProcessorStatus',e)
+                print(err_msg)
+                DebugPrint.Print(err_msg)
+                _ProgramLog(err_msg)
+                return
+            temps = [temp_dict['value1'],temp_dict['value2']]
+            if self.__interface:
+                if temps[1] not in ['Unknown','Disconnected','Connected','Online','Offline']:return
+                device = self._DebugServer__get_wrapped_device_from_friendly_name(temps[0])
+                if device:
+                    self.SendSecondaryProcessorStatus(device.GetInterface(),temps[1])
+        if 'ReceiveGVECommand(' in serverBuffer:
+            temp = serverBuffer[serverBuffer.find('(')+1:serverBuffer.rfind(')')]
+            try:
+                temp_dict = _json.loads(temp)
+            except Exception as e:
+                if sys_is_xi:
+                    err_msg = 'EXCEPTION:{}:{}:{}:ReceiveGVECommand:{}'.format(__class__.__name__,sys._getframe().f_code.co_name,self.__friendly_name,traceback.format_exc())
+                else:
+                    err_msg = 'EXCEPTION:{}:{}:{}:{}'.format(__class__.__name__,self.__friendly_name,'HandleReceiveFromServer:ReceiveGVECommand',e)
+                print(err_msg)
+                DebugPrint.Print(err_msg)
+                _ProgramLog(err_msg)
+                return
+            temps = [temp_dict['value1'],temp_dict['value2'],temp_dict['value3']]
+            if self.__interface and temps[0]:
+                try:
+                    int(temps[0])
+                except:return
+                if temps[1] != 'Power':return
+                if temps[1] == 'Power' and temps[2] not in ['On','Off']:return
+                for callback in self.__receivegvecommand_event_callbacks:
+                    callback(self.device,(temps[0], temps[1], temps[2]))
+        if 'ReceiveGVERoomEvent(' in serverBuffer:
+            temp = serverBuffer[serverBuffer.find('(')+1:serverBuffer.rfind(')')]
+            try:
+                temp_dict = _json.loads(temp)
+            except Exception as e:
+                if sys_is_xi:
+                    err_msg = 'EXCEPTION:{}:{}:{}:ReceiveGVERoomEvent:{}'.format(__class__.__name__,sys._getframe().f_code.co_name,self.__friendly_name,traceback.format_exc())
+                else:
+                    err_msg = 'EXCEPTION:{}:{}:{}:{}'.format(__class__.__name__,self.__friendly_name,'HandleReceiveFromServer:ReceiveGVERoomEvent',e)
+                print(err_msg)
+                DebugPrint.Print(err_msg)
+                _ProgramLog(err_msg)
+                return
+            temps = [temp_dict['value1'],temp_dict['value2']]
+            if self.__interface and temps[0]:
+                try:
+                    int(temps[0])
+                except:return
+                if temps[1] not in ['SystemOn','SystemOff']:return
+                for callback in self.__receivegveroomevent_event_callbacks:
+                    callback(self.device,('0', temps[0], temps[1]))
+
+    def HandleOptions(self,client,data:'bytes'):
+        serverBuffer = ''
+        try:
+            serverBuffer += data.decode()
+            #print('module recieve data:{}'.format(data.decode()))
+        except:
+            serverBuffer += data
+            #print('module recieve data:{}'.format(data))
+        if 'Option(' in serverBuffer:
+            temp = serverBuffer[serverBuffer.find('(')+1:serverBuffer.rfind(')')]
+            temp_dict = {}
+            try:
+                temp_dict = _json.loads(temp)
+            except Exception as e:
+                if sys_is_xi:
+                    err_msg = 'EXCEPTION:{}:{}:{}:Option:{}'.format(__class__.__name__,sys._getframe().f_code.co_name,self.__friendly_name,traceback.format_exc())
+                else:
+                    err_msg = 'EXCEPTION:{}:{}:{}:{}'.format(__class__.__name__,self.__friendly_name,'Option',e)
+                print(err_msg)
+                DebugPrint.Print(err_msg)
+                _ProgramLog(err_msg)
+            cmd = ''
+            if 'option' in temp_dict:
+                cmd = temp_dict['option']
+            value = ''
+            if 'value' in temp_dict:
+                value = temp_dict['value']
+            if cmd == 'print to trace':
+                self.__enable_print_to_trace = value
+            str_to_send = 'command: Module({}) ~ PrintToTrace({})'.format(self.__friendly_name,value)
+            print(str_to_send)
+            self.__printToServer(str_to_send)
+            self.__printToLog(self.__friendly_name,'Option', 'PrintToTrace,{}'.format(value))
+            self._DebugServer__update_nv_option(self.__listening_port,cmd,value)
+    def __print_to_trace(self,value):
+        if self.__enable_print_to_trace:
+            print(value)
+class _gveClient:
+    """
+    GVE Client Interface Class
+
+    This module implements the GS to GVE interface protocol.  The module
+    manages the connections to send and receive commands to and from the GVE
+    Server, and maintains a heartbeat to maintain the connection to the GVE
+    Server.
+    """
+    __version__ = '2.2.0'
+
+    matchCommand = _re.compile('GSTR([0-9a-fA-F]{12})([0-9]{0,3})(\[.*\])*')
+    matchDevice = _re.compile('\[([0-9a-zA-Z]{1,50})(~([0-9]{1,2})=(.*))*')
+    matchAction = _re.compile('([0-9]{1,2})=(.*)')
+
+    def __init__(self, Hostname, HostDevice, IPPort=5555, Interface='Any'):
+        """
+        :param Hostname: GVE Server Host Name/IP Address
+        :type Hostname: string
+        :param HostDevice: Primary Processor
+        :type HostDevice: extronlib.device.ProcessorDevice
+        :param IPPort: IP Port Number used for TCP and UDP Communications
+        :type IPPort: int
+        :param Interface: Defines the network interface on which to listen
+            ('Any', 'LAN', or 'AVLAN')
+        :type Interface: string
+        """
+
+        self.Hostname = Hostname
+        self.MACAddress = HostDevice.MACAddress.replace('-', '').upper()
+        self.IPPort = IPPort
+        self.GVEStatus = {}
+
+        self.printToDebugSend = None
+        self.printToDebugReceive = None
+        self.__sequence = 0
+        self.__canCommunicate = True
+        self.__dataBuffer = ''
+
+        # Event handlers
+        self.__DiagnosticSendText = self.__unassigned
+        self.__DiagnosticReceiveText = self.__unassigned
+        self.__GVEServerConnected = self.__unassigned
+        self.__GVEServerDisconnected = self.__unassigned
+        self.__ReceiveGVECommand = self.__unassigned
+
+        self.__TCPListen = _EthernetServerInterfaceEx(self.IPPort, 'TCP', Interface=Interface)
+
+        _time.sleep(2)
+        self.__TCPListen.Connected = self.__GVEServerConnected_handler
+        self.__TCPListen.Disconnected = self.__GVEServerDisconnected_handler
+        self.__TCPListen.ReceiveData = self.__ReceiveData
+        res = self.__TCPListen.StartListen()
+        if 'Listening' not in res:
+            raise RuntimeError('Unable to start GVE Listener. {}'.format(res))
+
+        self.__UDPSender = _EthernetClientInterface(self.Hostname, self.IPPort, 'UDP')
+
+        @_Wait(3.0)
+        def StartKeepAlive():
+            self.__SendHeartBeat(None, None)
+            _Timer(20, self.__SendHeartBeat)
+
+    def __GVEServerConnected_handler(self, _, state):
+        self.__GVEServerConnected(self, state)
+
+    def __GVEServerDisconnected_handler(self, _, state):
+        self.__GVEServerDisconnected(self, state)
+
+    def __CreateCommandString(self, command=None):
+        """ Command String Builder
+
+        Assembles Command String with Header, MAC Address, Sequence, and ETX
+        byte.
+        """
+        header = 'GSTR{0}{1:03d}'.format(
+            self.MACAddress,
+            self.__sequence
+            )
+
+        if self.__sequence == 255:
+            self.__sequence = 0
+        else:
+            self.__sequence += 1
+
+        return header + command + '\x03' if command else header + '\x03'
+
+    def __UDPSend(self, data):
+        if self.printToDebugSend:
+            self.printToDebugSend(data)
+        try:
+            self.__UDPSender.Send(data)
+        except Exception:
+            # gaierror is the only known exception.  Unable to import gaierror
+            # from disallowed non-built-in module socket.
+            self.__DiagnosticSendText(self, 'Cannot send: network error')
+
+    def __SendHeartBeat(self, timer, count):
+        """ Send Hearbeat Message
+
+        Recursive Loop that sends heartbeat every 20.0 seconds.
+        """
+        SendString = self.__CreateCommandString()
+        self.__DiagnosticSendText(self, SendString)
+        self.__UDPSend(SendString)
+
+    def __SendFullUpdate(self):
+        """ Send Full System Update Message
+
+        Assembles and sends the system update message.
+        """
+        cmdString = ''
+
+        for key in self.GVEStatus:
+            cmdString += '[{0}]'.format(key)
+
+            for subkey in self.GVEStatus[key]:
+                cmdString = cmdString[:-1] + \
+                        '~{0}={1}]'.format(subkey, self.GVEStatus[key][subkey])
+
+        if cmdString and self.__canCommunicate:
+            SendString = self.__CreateCommandString(cmdString)
+            self.__DiagnosticSendText(self, SendString)
+            self.__UDPSend(SendString)
+
+    def __ExecuteCommand(self, device, actionID, actionState):
+        """ Execute Command from GVE Server
+
+        Internal function that interprets commands received from the GVE Server
+        """
+        ActionDict = {
+            0: 'Update',
+            17: 'Power',
+            22: 'Device Status',
+            38: 'Room Event',
+            }
+        StateDict = {
+            '0': 'Off',
+            '1': 'On',
+            }
+
+        if device == '0' and ActionDict[actionID] == 'Update':
+            if actionState == '1':
+                self.__canCommunicate = True
+                self.__SendFullUpdate()
+            elif actionState == '0':
+                self.__canCommunicate = False
+        elif device == '0' and ActionDict[actionID] == 'Room Event':
+            RoomEventData = actionState.split('_')
+            self.__ReceiveGVERoomEvent(self,
+                    (device, int(RoomEventData[0]), RoomEventData[1]))
+        else:
+            if ActionDict[actionID] == 'Power':
+                self.__ReceiveGVECommand(self,
+                        (device, 'Power', StateDict[actionState]))
+            else:
+                self.__ReceiveGVECommand(self,
+                        (device, ActionDict[actionID], actionState))
+
+    def __ReceiveData(self, interface, data):
+        """ Receive Data
+
+        Internal event processor for data received from the GVE Server.
+        Processes incoming data and validates commands that match MAC Address
+        """
+        if self.printToDebugReceive:
+            self.printToDebugReceive(data.decode())
+        tempBuffer = self.__dataBuffer + data.decode()
+
+        if tempBuffer[-1] != '\x03':
+            last = tempBuffer.rfind('\x03')
+            self.__dataBuffer = tempBuffer[last+1:]
+            tempBuffer = tempBuffer[:last]
+        else:
+            self.__dataBuffer = ''
+
+        dataLines = tempBuffer.split('\x03')[:-1]
+
+        for rcvCmd in dataLines:
+            self.__DiagnosticReceiveText(self, rcvCmd)
+
+            # See if Valid Commmand is received
+            found = self.matchCommand.match(rcvCmd)
+
+            if found:
+                rcvMAC = found.group(1).upper()
+
+                # Check if MAC matches processor
+                if rcvMAC == self.MACAddress:
+                    rcvSequence = found.group(2)
+
+                    if found.group(3):
+                        rcvCommands = found.group(3).split(']')
+                    else:
+                        rcvCommands = []
+
+                    # Check what commands received from GVE Server
+                    for rcvCommand in rcvCommands:
+                        # Parse which device
+                        foundDevice = self.matchDevice.match(rcvCommand)
+                        if foundDevice is not None:
+                            cmdDevice = foundDevice.group(1)
+                            cmdActions = foundDevice.group(2).split('~')
+                            # Parse which commands and parameters
+                            for cmdAction in cmdActions:
+                                foundAction = self.matchAction.match(cmdAction)
+                                if foundAction:
+                                    ActionID = int(foundAction.group(1))
+                                    ActionState = str(foundAction.group(2))
+                                    escapeChars = {
+                                        '\7E': '~',
+                                        '\3D': '=',
+                                        '\5C': '\\',
+                                        '\5B': '[',
+                                        '\5D': ']',
+                                    }
+                                    for k, v in escapeChars.items():
+                                        if k in ActionState:
+                                            ActionState = ActionState.replace(k, v)
+
+                                    self.__ExecuteCommand(cmdDevice, ActionID,
+                                            ActionState)
+                else:
+                    self.__DiagnosticReceiveText(self,
+                            'Receive Command with incorrect MAC')
+
+    def SendStatus(self, device, command, value):
+        """
+        Send Status to GVE Server
+
+        External Method that interprets and assembles commands to send to GVE
+        Server.  See the :ref:`ref-SendStatus` table in the appendix for
+        available commands.
+
+        :param device: device ID assigned in GVE Server
+        :type device: string
+        :param command: friendly name for command sent to GVE Server
+        :type command: string
+        :param value: command values to set on GVE Server
+        :type value: string
+        """
+        CommandDict = {
+            'Power': 17,
+            'Source': 18,
+            'Connection': 19,
+            'Lamp 1 Hours': 20,
+            'Lamp 2 Hours': 29,
+            'Lamp 3 Hours': 30,
+            'Lamp 4 Hours': 31,
+            'Filter Hours': 21,
+            'Device Status': 44,
+            }
+        StringStatusCommand = [
+            'Source', 'Lamp 1 Hours', 'Lamp 2 Hours', 'Lamp 3 Hours',
+            'Lamp 4 Hours', 'Filter Hours',
+            ]
+        PowerDict = {
+            'Unknown': -1,
+            'Off': 0,
+            'On': 1,
+            'Cooling Down': 2,
+            'Warming Up': 3,
+            }
+        StatusDict = {
+            'Unknown': -1,
+            'Disconnected': 0,
+            'Connected': 1,
+            'Online': 1,
+            'Offline': 0,
+            }
+        cmdString = ''
+        if command in CommandDict:
+            if not isinstance(device, str):
+                raise TypeError('device must be an alphanumeric string.')
+
+            if not device in self.GVEStatus:
+                self.GVEStatus[device] = {}
+
+            if command == 'Power' and value in PowerDict:
+                cmdString = '[{0}~{1}={2}]'.format(device,
+                        CommandDict[command], PowerDict[value])
+                self.GVEStatus[device][CommandDict[command]] = PowerDict[value]
+            elif command == 'Connection' and value in StatusDict:
+                cmdString = '[{0}~{1}={2}]'.format(device,
+                        CommandDict[command], StatusDict[value])
+                self.GVEStatus[device][CommandDict[command]] = StatusDict[value]
+            elif command == 'Device Status':
+                cmdString = '[{0}~{1}={2}]'.format(device,
+                        CommandDict[command], value)
+                self.GVEStatus[device][CommandDict[command]] = value
+            elif command in StringStatusCommand:
+                escapeChars = {
+                    '~': '\7E',
+                    '=': '\3D',
+                    '\\': '\5C',
+                    '[': '\5B',
+                    ']': '\5D',
+                }
+                for k, v in escapeChars.items():
+                    if k in str(value):
+                        value = str(value).replace(k, v)
+
+                cmdString = '[{0}~{1}={2}]'.format(
+                            device, CommandDict[command], value)
+                self.GVEStatus[device][CommandDict[command]] = value
+            else:
+                self.__DiagnosticReceiveText(self,
+                        'GVE> Invalid Status Received')
+
+            if cmdString and self.__canCommunicate:
+                SendString = self.__CreateCommandString(cmdString)
+                self.__DiagnosticSendText(self, SendString)
+                self.__UDPSend(SendString)
+
+    def SendSecondaryProcessorStatus(self, device, value):
+        """
+        Send Secondary Processor Status to GVE Server
+
+        External Method that sends Secondary Processor Connection Status to GVE
+        Server
+
+        :param device: Secondary Processor added in GVE
+        :type device: extronlib.device.ProcessorDevice
+        :param value: 'Unknown', 'Connected', 'Disconnected', 'Online' or 'Offline'
+        :type value: string
+        """
+        StatusDict = {
+            'Unknown': -1,
+            'Disconnected': 0,
+            'Connected': 1,
+            'Offline': 0,
+            'Online': 1,
+            }
+
+        if device.MACAddress is not None:
+            macaddr = device.MACAddress.replace('-', '')
+
+            if value in StatusDict:
+                if not macaddr in self.GVEStatus:
+                    self.GVEStatus[macaddr] = {}
+
+                cmdString = '[{0}~19={1}]'.format(macaddr, StatusDict[value])
+                self.GVEStatus[macaddr][19] = StatusDict[value]
+
+                if self.__canCommunicate:
+                    SendString = self.__CreateCommandString(cmdString)
+                    self.__DiagnosticSendText(self, SendString)
+                    self.__UDPSend(SendString)
+        else:
+            self.__DiagnosticSendText(self, 'GVE> Invalid MAC Address')
+
+    ## Class Event Callbacks
+    ##########
+    def __unassigned(self, *args):
+        pass
+
+    @property
+    def DiagnosticSendText(self):
+        """
+        ``Event:`` Triggers when data is sent to the GVE server.
+
+        The callback function must accept exactly two parameters, which are
+        the :py:class:`~gve_interface.gveClient` that triggers the event and
+        the string that was sent.
+        """
+        return self.__DiagnosticSendText
+
+    @DiagnosticSendText.setter
+    def DiagnosticSendText(self, handler):
+        if callable(handler):
+            self.__DiagnosticSendText = handler
+        else:
+            raise TypeError("'handler' is not callable")
+
+    @property
+    def DiagnosticReceiveText(self):
+        """
+        ``Event:`` Triggers when data is received from the GVE server.
+
+        The callback function must accept exactly two parameters, which are
+        the :py:class:`~gve_interface.gveClient` that triggers the event and
+        the string that was received.
+        """
+        return self.__DiagnosticReceiveText
+
+    @DiagnosticReceiveText.setter
+    def DiagnosticReceiveText(self, handler):
+        if callable(handler):
+            self.__DiagnosticReceiveText = handler
+        else:
+            raise TypeError("'handler' is not callable")
+
+    @property
+    def GVEServerConnected(self):
+        """
+        ``Event:`` Triggers when a connection to the GVE server is
+        established.
+
+        The callback function must accept exactly two parameters, which are
+        the :py:class:`~gve_interface.gveClient` that triggers the event and a
+        string (``'Connected'``).
+        """
+        return self.__GVEServerConnected
+
+    @GVEServerConnected.setter
+    def GVEServerConnected(self, handler):
+        if callable(handler):
+            self.__GVEServerConnected = handler
+        else:
+            raise TypeError("'handler' is not callable")
+
+    @property
+    def GVEServerDisconnected(self):
+        """
+        ``Event:`` Triggers when a connection to the GVE server is closed.
+
+        The callback function must accept exactly two parameters, which are
+        the :py:class:`~gve_interface.gveClient` that triggers the event and a
+        string (``'Disconnected'``).
+        """
+        return self.__GVEServerDisconnected
+
+    @GVEServerDisconnected.setter
+    def GVEServerDisconnected(self, handler):
+        if callable(handler):
+            self.__GVEServerDisconnected = handler
+        else:
+            raise TypeError("'handler' is not callable")
+
+    @property
+    def ReceiveGVECommand(self):
+        """
+        ``Event:`` Triggers when a command is received from the GVE server.
+
+        The callback function must accept exactly two parameters, which are
+        the :py:class:`~gve_interface.gveClient` that triggers the event and a
+        tuple ``(deviceID, command, parameter)``.  See the
+        :ref:`ref-ReceiveGVECommand` in the appendix for the possible
+        commands.
+        """
+        return self.__ReceiveGVECommand
+
+    @ReceiveGVECommand.setter
+    def ReceiveGVECommand(self, handler):
+        if callable(handler):
+            self.__ReceiveGVECommand = handler
+        else:
+            raise TypeError("'handler' is not callable")
+
+    @property
+    def ReceiveGVERoomEvent(self):
+        """
+        ``Event:`` Triggers when a room event action is received from the GVE
+        server.
+
+        The callback function must accept exactly two parameters, which are
+        the :py:class:`~gve_interface.gveClient` that triggers the event and a
+        tuple ``(deviceID, room, eventName)``.  See the
+        :ref:`ref-ReceiveGVERoomEvent` in the appendix for the possible room
+        events.
+        """
+        return self.__ReceiveGVERoomEvent
+
+    @ReceiveGVERoomEvent.setter
+    def ReceiveGVERoomEvent(self, handler):
+        if callable(handler):
+            self.__ReceiveGVERoomEvent = handler
+        else:
+            raise TypeError("'handler' is not callable")
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

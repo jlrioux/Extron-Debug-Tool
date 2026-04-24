@@ -18,6 +18,13 @@ if TYPE_CHECKING:
 class ProgramDebuggerClass():
     def __init__(self,frame:'tk.Frame',vars:'variablesclass'):
         #class variables
+        self.__selected_device = tk.StringVar()
+        self.__selected_device.trace_add('write',self.__selected_device_changed())
+        self.__var_device_print_to_trace = tk.IntVar(value = 1)
+        def w(*args):
+            pass#print(f'print to trace changed:{self.__var_device_print_to_trace.get()}')
+        self.__var_device_print_to_trace.trace_add('write',w)
+
         self.vars = vars
         self.__frame = frame
         self.__selected_module = None
@@ -43,10 +50,7 @@ class ProgramDebuggerClass():
         self.__device_list = []
         self.__reading_devices_busy = False
 
-        self.__selected_device = tk.StringVar()
-        self.__selected_device.trace_add('write',self.__selected_device_changed())
 
-        self.__var_device_print_to_trace = tk.IntVar()
         #set up the UI
 
         def focus_next_widget(event):
@@ -152,7 +156,7 @@ class ProgramDebuggerClass():
 
         self.__frame_print_to_trace = tk.Frame(self.__frame_controller_module_left)
         self.__frame_print_to_trace.grid(column=0,row=2,sticky='nw')
-        self.__chkbox_device_print_to_trace = tk.Checkbutton(self.__frame_print_to_trace,text='Print To Trace',variable=self.__var_device_print_to_trace,onvalue=1,offvalue=0,command=self.__cmd_device_print_to_trace())
+        self.__chkbox_device_print_to_trace = tk.Checkbutton(self.__frame_print_to_trace,text='Print To Trace',variable=self.__var_device_print_to_trace,command=self.__cmd_device_print_to_trace())
         self.__chkbox_device_print_to_trace.grid(column=0,row=3,sticky='nw')
 
         self.__lbl_device_comm_detail1 = tk.Label(self.__frame_controller_module_left,text = ' ')
@@ -707,15 +711,81 @@ class ProgramDebuggerClass():
         #HideAllPopups()
         self.__btn_cmd_ui_hideallpopups = tk.Button(self.__frame_device_commands_for_ui,text='HideAllPopups',width=15,command=self.__cmd_hideallpopups_selected_device)
         self.__btn_cmd_ui_hideallpopups.grid(column=0,row=6,sticky='nw')
+        #SetLEDAutoBrightness()
+        self.__lbl_device_commands_ui_setledautobrightness1 = tk.Label(self.__frame_device_commands_for_ui,text='ID(fixed value)')
+        self.__lbl_device_commands_ui_setledautobrightness1.grid(column=1,row=7,sticky='nw')
+        self.__lbl_device_commands_ui_setledautobrightness2 = tk.Label(self.__frame_device_commands_for_ui,text='State(bool)')
+        self.__lbl_device_commands_ui_setledautobrightness2.grid(column=2,row=7,sticky='nw')
+        self.__btn_cmd_ui_setledautobrightness = tk.Button(self.__frame_device_commands_for_ui,text='SetLEDAutoBrightness',width=15,command=self.__cmd_setledautobrightness_selected_device)
+        self.__btn_cmd_ui_setledautobrightness.bind('<Return>',enter_on_button(self.__cmd_setledautobrightness_selected_device))
+        self.__btn_cmd_ui_setledautobrightness.grid(column=0,row=8,sticky='nw')
+        self.__tb_cmd_ui_setledautobrightness1 = tk.Text(self.__frame_device_commands_for_ui,height=1,width=20,wrap='none')
+        self.__tb_cmd_ui_setledautobrightness1.bind('<Tab>',focus_next_widget)
+        self.__tb_cmd_ui_setledautobrightness1.grid(column=1,row=8,sticky='nw')
+        self.__tb_cmd_ui_setledautobrightness1.insert('1.0','65532')
+        self.__tb_cmd_ui_setledautobrightness1['state'] = 'disabled'
+        self.__tb_cmd_ui_setledautobrightness2 = tk.Text(self.__frame_device_commands_for_ui,height=1,width=20,wrap='none')
+        self.__tb_cmd_ui_setledautobrightness2.bind('<Tab>',focus_target_widget(self.__btn_cmd_ui_setledautobrightness))
+        self.__tb_cmd_ui_setledautobrightness2.grid(column=2,row=8,sticky='nw')
+        #SetLEDBrightness()
+        self.__lbl_device_commands_ui_setledbrightness1 = tk.Label(self.__frame_device_commands_for_ui,text='ID(fixed value)')
+        self.__lbl_device_commands_ui_setledbrightness1.grid(column=1,row=9,sticky='nw')
+        self.__lbl_device_commands_ui_setledbrightness2 = tk.Label(self.__frame_device_commands_for_ui,text='Level(int)')
+        self.__lbl_device_commands_ui_setledbrightness2.grid(column=2,row=9,sticky='nw')
+        self.__btn_cmd_ui_setledbrightness = tk.Button(self.__frame_device_commands_for_ui,text='SetLEDBrightness',width=15,command=self.__cmd_setledbrightness_selected_device)
+        self.__btn_cmd_ui_setledbrightness.bind('<Return>',enter_on_button(self.__cmd_setledbrightness_selected_device))
+        self.__btn_cmd_ui_setledbrightness.grid(column=0,row=10,sticky='nw')
+        self.__tb_cmd_ui_setledbrightness1 = tk.Text(self.__frame_device_commands_for_ui,height=1,width=20,wrap='none')
+        self.__tb_cmd_ui_setledbrightness1.bind('<Tab>',focus_next_widget)
+        self.__tb_cmd_ui_setledbrightness1.grid(column=1,row=10,sticky='nw')
+        self.__tb_cmd_ui_setledbrightness1.insert('1.0','65532')
+        self.__tb_cmd_ui_setledbrightness1['state'] = 'disabled'
+        self.__tb_cmd_ui_setledbrightness2 = tk.Text(self.__frame_device_commands_for_ui,height=1,width=20,wrap='none')
+        self.__tb_cmd_ui_setledbrightness2.bind('<Tab>',focus_target_widget(self.__btn_cmd_ui_setledbrightness))
+        self.__tb_cmd_ui_setledbrightness2.grid(column=2,row=10,sticky='nw')
+        #SetLEDState()
+        self.__lbl_device_commands_ui_setledstate1 = tk.Label(self.__frame_device_commands_for_ui,text='ID(65532 or 65533)')
+        self.__lbl_device_commands_ui_setledstate1.grid(column=1,row=11,sticky='nw')
+        self.__lbl_device_commands_ui_setledstate2 = tk.Label(self.__frame_device_commands_for_ui,text='State(str)')
+        self.__lbl_device_commands_ui_setledstate2.grid(column=2,row=11,sticky='nw')
+        self.__btn_cmd_ui_setledstate = tk.Button(self.__frame_device_commands_for_ui,text='SetLEDState',width=15,command=self.__cmd_setledstate_selected_device)
+        self.__btn_cmd_ui_setledstate.bind('<Return>',enter_on_button(self.__cmd_setledstate_selected_device))
+        self.__btn_cmd_ui_setledstate.grid(column=0,row=12,sticky='nw')
+        self.__tb_cmd_ui_setledstate1 = tk.Text(self.__frame_device_commands_for_ui,height=1,width=20,wrap='none')
+        self.__tb_cmd_ui_setledstate1.bind('<Tab>',focus_next_widget)
+        self.__tb_cmd_ui_setledstate1.grid(column=1,row=12,sticky='nw')
+        self.__tb_cmd_ui_setledstate2 = tk.Text(self.__frame_device_commands_for_ui,height=1,width=20,wrap='none')
+        self.__tb_cmd_ui_setledstate2.bind('<Tab>',focus_target_widget(self.__btn_cmd_ui_setledstate))
+        self.__tb_cmd_ui_setledstate2.grid(column=2,row=12,sticky='nw')
+        #SetLEDBlinking()
+        self.__lbl_device_commands_ui_setledblinking1 = tk.Label(self.__frame_device_commands_for_ui,text='ID(int)')
+        self.__lbl_device_commands_ui_setledblinking1.grid(column=1,row=13,sticky='nw')
+        self.__lbl_device_commands_ui_setledblinking2 = tk.Label(self.__frame_device_commands_for_ui,text='Slow,Medium,Fast')
+        self.__lbl_device_commands_ui_setledblinking2.grid(column=2,row=13,sticky='nw')
+        self.__lbl_device_commands_ui_setledblinking3 = tk.Label(self.__frame_device_commands_for_ui,text='StateList(comma separated colors)')
+        self.__lbl_device_commands_ui_setledblinking3.grid(column=3,row=13,sticky='nw')
+        self.__btn_cmd_ui_setledblinking = tk.Button(self.__frame_device_commands_for_ui,text='SetLEDBlinking',width=15,command=self.__cmd_setledblinking_selected_device)
+        self.__btn_cmd_ui_setledblinking.bind('<Return>',enter_on_button(self.__cmd_setledblinking_selected_device))
+        self.__btn_cmd_ui_setledblinking.grid(column=0,row=14,sticky='nw')
+        self.__tb_cmd_ui_setledblinking1 = tk.Text(self.__frame_device_commands_for_ui,height=1,width=20,wrap='none')
+        self.__tb_cmd_ui_setledblinking1.bind('<Tab>',focus_next_widget)
+        self.__tb_cmd_ui_setledblinking1.grid(column=1,row=14,sticky='nw')
+        self.__tb_cmd_ui_setledblinking2 = tk.Text(self.__frame_device_commands_for_ui,height=1,width=20,wrap='none')
+        self.__tb_cmd_ui_setledblinking2.bind('<Tab>',focus_target_widget)
+        self.__tb_cmd_ui_setledblinking2.grid(column=2,row=14,sticky='nw')
+        self.__tb_cmd_ui_setledblinking3 = tk.Text(self.__frame_device_commands_for_ui,height=1,width=20,wrap='none')
+        self.__tb_cmd_ui_setledblinking3.bind('<Tab>',focus_target_widget(self.__btn_cmd_ui_setledblinking))
+        self.__tb_cmd_ui_setledblinking3.grid(column=3,row=14,sticky='nw')
+
         #Wake()
         self.__btn_cmd_ui_wake = tk.Button(self.__frame_device_commands_for_ui,text='Wake',width=15,command=self.__cmd_wake_selected_device)
-        self.__btn_cmd_ui_wake.grid(column=0,row=7,sticky='nw')
+        self.__btn_cmd_ui_wake.grid(column=0,row=15,sticky='nw')
         #Sleep()
         self.__btn_cmd_ui_sleep = tk.Button(self.__frame_device_commands_for_ui,text='Sleep',width=15,command=self.__cmd_sleep_selected_device)
-        self.__btn_cmd_ui_sleep.grid(column=0,row=8,sticky='nw')
+        self.__btn_cmd_ui_sleep.grid(column=0,row=16,sticky='nw')
         #Reboot()
         self.__btn_cmd_ui_reboot = tk.Button(self.__frame_device_commands_for_ui,text='Reboot',width=15,command=self.__cmd_reboot_selected_device)
-        self.__btn_cmd_ui_reboot.grid(column=0,row=9,sticky='nw')
+        self.__btn_cmd_ui_reboot.grid(column=0,row=17,sticky='nw')
 
         ''' print ui '''
         self.__frame_device_print = tk.Frame(self.__frame_device_commands)
@@ -729,16 +799,18 @@ class ProgramDebuggerClass():
         self.__frame_device_modes_for_virtualui.grid(column=0,row=0,sticky='nw')
         self.__btn_mode_virtualui_navigation = tk.Button(self.__frame_device_modes_for_virtualui,text='Navigation',width=15,command=self.__set_device_virtualui_mode('Navigation'))
         self.__btn_mode_virtualui_navigation.grid(column=0,row=0,sticky='nw')
-        self.__btn_mode_virtualui_buttons = tk.Button(self.__frame_device_modes_for_virtualui,text='Button',width=15,command=self.__set_device_virtualui_mode('Button'))
+        self.__btn_mode_virtualui_buttons = tk.Button(self.__frame_device_modes_for_virtualui,text='Button',width=10,command=self.__set_device_virtualui_mode('Button'))
         self.__btn_mode_virtualui_buttons.grid(column=1,row=0,sticky='nw')
-        self.__btn_mode_virtualui_knobs = tk.Button(self.__frame_device_modes_for_virtualui,text='Knob',width=15,command=self.__set_device_virtualui_mode('Knob'))
+        self.__btn_mode_virtualui_knobs = tk.Button(self.__frame_device_modes_for_virtualui,text='Knob',width=10,command=self.__set_device_virtualui_mode('Knob'))
         self.__btn_mode_virtualui_knobs.grid(column=2,row=0,sticky='nw')
-        self.__btn_mode_virtualui_labels = tk.Button(self.__frame_device_modes_for_virtualui,text='Label',width=15,command=self.__set_device_virtualui_mode('Label'))
+        self.__btn_mode_virtualui_labels = tk.Button(self.__frame_device_modes_for_virtualui,text='Label',width=10,command=self.__set_device_virtualui_mode('Label'))
         self.__btn_mode_virtualui_labels.grid(column=3,row=0,sticky='nw')
-        self.__btn_mode_virtualui_levels = tk.Button(self.__frame_device_modes_for_virtualui,text='Level',width=15,command=self.__set_device_virtualui_mode('Level'))
+        self.__btn_mode_virtualui_levels = tk.Button(self.__frame_device_modes_for_virtualui,text='Level',width=10,command=self.__set_device_virtualui_mode('Level'))
         self.__btn_mode_virtualui_levels.grid(column=4,row=0,sticky='nw')
-        self.__btn_mode_virtualui_sliders = tk.Button(self.__frame_device_modes_for_virtualui,text='Slider',width=15,command=self.__set_device_virtualui_mode('Slider'))
+        self.__btn_mode_virtualui_sliders = tk.Button(self.__frame_device_modes_for_virtualui,text='Slider',width=10,command=self.__set_device_virtualui_mode('Slider'))
         self.__btn_mode_virtualui_sliders.grid(column=5,row=0,sticky='nw')
+        self.__btn_mode_virtualui_videos = tk.Button(self.__frame_device_modes_for_virtualui,text='Video',width=10,command=self.__set_device_virtualui_mode('Video'))
+        self.__btn_mode_virtualui_videos.grid(column=6,row=0,sticky='nw')
 
         self.__frame_device_commands_for_virtualui_navigation = tk.Frame(self.__frame_device_virtualui)
         self.__frame_device_commands_for_virtualui_navigation.grid(column=0,row=1,sticky='nw')
@@ -1087,6 +1159,146 @@ class ProgramDebuggerClass():
         self.__tb_cmd_virtualui_slider_emulate3.grid(column=3,row=11,sticky='nw')
 
 
+        self.__frame_device_commands_for_virtualui_video = tk.Frame(self.__frame_device_virtualui)
+        self.__frame_device_commands_for_virtualui_video.grid(column=0,row=6,sticky='nw')
+        #setinput(list[int],str)
+        self.__lbl_device_commands_virtualui_video_setinput1 = tk.Label(self.__frame_device_commands_for_virtualui_video,text='IDs(fixed value)')
+        self.__lbl_device_commands_virtualui_video_setinput1.grid(column=1,row=0,sticky='nw')
+        self.__lbl_device_commands_virtualui_video_setinput2 = tk.Label(self.__frame_device_commands_for_virtualui_video,text='Physical or Stream')
+        self.__lbl_device_commands_virtualui_video_setinput2.grid(column=2,row=0,sticky='nw')
+        self.__btn_cmd_virtualui_video_setinput = tk.Button(self.__frame_device_commands_for_virtualui_video,text='SetInput',width=15,command=self.__cmd_setinput_selected_device)
+        self.__btn_cmd_virtualui_video_setinput.bind('<Return>',enter_on_button(self.__cmd_setinput_selected_device))
+        self.__btn_cmd_virtualui_video_setinput.grid(column=0,row=1,sticky='nw')
+        self.__tb_cmd_virtualui_video_setinput1 = tk.Text(self.__frame_device_commands_for_virtualui_video,height=1,width=20,wrap='none')
+        self.__tb_cmd_virtualui_video_setinput1.bind('<Tab>',focus_next_widget)
+        self.__tb_cmd_virtualui_video_setinput1.insert('1.0','61091')
+        self.__tb_cmd_virtualui_video_setinput1['state'] = 'disabled'
+        self.__tb_cmd_virtualui_video_setinput1.grid(column=1,row=1,sticky='nw')
+        self.__sv_commands_cmd_virtualui_video_setinput_value = tk.StringVar()
+        self.__sv_commands_cmd_virtualui_video_setinput_value.set('Stream')
+        self.__list_commands_cmd_virtualui_video_setinput_value_options = ['Physical','Stream']
+        self.__om_commands_cmd_virtualui_video_setinput_value = tk.OptionMenu(self.__frame_device_commands_for_virtualui_video,self.__sv_commands_cmd_virtualui_video_setinput_value,*self.__list_commands_cmd_virtualui_video_setinput_value_options)
+        self.__om_commands_cmd_virtualui_video_setinput_value.grid(column=2,row=1,sticky='nw')
+
+        #setstreamsource(list[int],str)
+        self.__lbl_device_commands_virtualui_video_setstreamsource1 = tk.Label(self.__frame_device_commands_for_virtualui_video,text='IDs(fixed value)')
+        self.__lbl_device_commands_virtualui_video_setstreamsource1.grid(column=1,row=2,sticky='nw')
+        self.__lbl_device_commands_virtualui_video_setstreamsource2 = tk.Label(self.__frame_device_commands_for_virtualui_video,text='Stream Name or None')
+        self.__lbl_device_commands_virtualui_video_setstreamsource2.grid(column=2,row=2,sticky='nw')
+        self.__btn_cmd_virtualui_video_setstreamsource = tk.Button(self.__frame_device_commands_for_virtualui_video,text='SetStreamSource',width=15,command=self.__cmd_setstreamsource_selected_device)
+        self.__btn_cmd_virtualui_video_setstreamsource.bind('<Return>',enter_on_button(self.__cmd_setstreamsource_selected_device))
+        self.__btn_cmd_virtualui_video_setstreamsource.grid(column=0,row=3,sticky='nw')
+        self.__tb_cmd_virtualui_video_setstreamsource1 = tk.Text(self.__frame_device_commands_for_virtualui_video,height=1,width=20,wrap='none')
+        self.__tb_cmd_virtualui_video_setstreamsource1.bind('<Tab>',focus_next_widget)
+        self.__tb_cmd_virtualui_video_setstreamsource1.insert('1.0','61091')
+        self.__tb_cmd_virtualui_video_setstreamsource1['state'] = 'disabled'
+        self.__tb_cmd_virtualui_video_setstreamsource1.grid(column=1,row=3,sticky='nw')
+        self.__tb_cmd_virtualui_video_setstreamsource2 = tk.Text(self.__frame_device_commands_for_virtualui_video,height=1,width=20,wrap='none')
+        self.__tb_cmd_virtualui_video_setstreamsource2.bind('<Tab>',focus_target_widget(self.__btn_cmd_virtualui_video_setstreamsource))
+        self.__tb_cmd_virtualui_video_setstreamsource2.grid(column=2,row=3,sticky='nw')
+        #SetVisible(list[int],bool)
+        self.__lbl_device_commands_virtualui_video_setvisible1 = tk.Label(self.__frame_device_commands_for_virtualui_video,text='IDs(fixed value)')
+        self.__lbl_device_commands_virtualui_video_setvisible1.grid(column=1,row=4,sticky='nw')
+        self.__lbl_device_commands_virtualui_video_setvisible2 = tk.Label(self.__frame_device_commands_for_virtualui_video,text='True or False')
+        self.__lbl_device_commands_virtualui_video_setvisible2.grid(column=2,row=4,sticky='nw')
+        self.__btn_cmd_virtualui_video_setvisible = tk.Button(self.__frame_device_commands_for_virtualui_video,text='SetVisible',width=15,command=self.__cmd_setvisible_selected_device)
+        self.__btn_cmd_virtualui_video_setvisible.bind('<Return>',enter_on_button(self.__cmd_setvisible_selected_device))
+        self.__btn_cmd_virtualui_video_setvisible.grid(column=0,row=5,sticky='nw')
+        self.__tb_cmd_virtualui_video_setvisible1 = tk.Text(self.__frame_device_commands_for_virtualui_video,height=1,width=20,wrap='none')
+        self.__tb_cmd_virtualui_video_setvisible1.bind('<Tab>',focus_next_widget)
+        self.__tb_cmd_virtualui_video_setvisible1.insert('1.0','61091')
+        self.__tb_cmd_virtualui_video_setvisible1['state'] = 'disabled'
+        self.__tb_cmd_virtualui_video_setvisible1.grid(column=1,row=5,sticky='nw')
+        self.__tb_cmd_virtualui_video_setvisible2 = tk.Text(self.__frame_device_commands_for_virtualui_video,height=1,width=20,wrap='none')
+        self.__tb_cmd_virtualui_video_setvisible2.bind('<Tab>',focus_target_widget(self.__btn_cmd_virtualui_video_setvisible))
+        self.__tb_cmd_virtualui_video_setvisible2.grid(column=2,row=5,sticky='nw')
+
+
+        ''' gve commands '''
+        self.__frame_gve_commands = tk.Frame(self.__frame_controller_module_command_view,pady=10)
+        self.__frame_gve_commands.grid(column=0,row=16,sticky='nsew')
+
+        self.__frame_gve_commands_for_gve = tk.Frame(self.__frame_gve_commands)
+        self.__frame_gve_commands_for_gve.grid(column=0,row=0,sticky='nw')
+        self.__frame_gve_commands_for_gve_top = tk.Frame(self.__frame_gve_commands_for_gve)
+        self.__frame_gve_commands_for_gve_top.grid(column=0,row=0,sticky='nw')
+        #SendStatus(device id,command,status)
+        self.__lbl_commands_module_gve_sendstatus1 = tk.Label(self.__frame_gve_commands_for_gve_top,text='Device ID')
+        self.__lbl_commands_module_gve_sendstatus1.grid(column=1,row=0,sticky='nw')
+        self.__lbl_commands_module_gve_sendstatus2 = tk.Label(self.__frame_gve_commands_for_gve_top,text='Command')
+        self.__lbl_commands_module_gve_sendstatus2.grid(column=2,row=0,sticky='nw')
+        self.__lbl_commands_module_gve_sendstatus3 = tk.Label(self.__frame_gve_commands_for_gve_top,text='Status')
+        self.__lbl_commands_module_gve_sendstatus3.grid(column=3,row=0,sticky='nw')
+        self.__btn_cmd_gve_sendstatus = tk.Button(self.__frame_gve_commands_for_gve_top,text="SendStatus",width=30,command=self.__cmd_sendstatus_selected_module)
+        self.__btn_cmd_gve_sendstatus.bind('<Return>',enter_on_button(self.__cmd_sendstatus_selected_module))
+        self.__btn_cmd_gve_sendstatus.grid(column=0,row=1,sticky='nw')
+        self.__tb_gve_sendstatus_command1 = tk.Text(self.__frame_gve_commands_for_gve_top,height=1,width=15,wrap='none')
+        self.__tb_gve_sendstatus_command1.bind('<Tab>',focus_next_widget)
+        self.__tb_gve_sendstatus_command1.grid(column=1,row=1,sticky='nw')
+        self.__sv_commands_gve_sendstatus_value = tk.StringVar()
+        self.__sv_commands_gve_sendstatus_value.set('Power')
+        self.__list_commands_gve_sendstatus_value_options = ['Power','Source','Connection','Lamp 1 Hours','Lamp 2 Hours','Lamp 3 Hours','Lamp 4 Hours','Filter Hours','Device Status']
+        self.__om_commands_gve_sendStatus_value = tk.OptionMenu(self.__frame_gve_commands_for_gve_top,self.__sv_commands_gve_sendstatus_value,*self.__list_commands_gve_sendstatus_value_options)
+        self.__om_commands_gve_sendStatus_value.grid(column=2,row=1,sticky='nw')
+        self.__tb_gve_sendstatus_command3 = tk.Text(self.__frame_gve_commands_for_gve_top,height=1,width=30,wrap='none')
+        self.__tb_gve_sendstatus_command3.bind('<Tab>',focus_target_widget(self.__btn_cmd_gve_sendstatus))
+        self.__tb_gve_sendstatus_command3.grid(column=3,row=1,sticky='nw')
+        #SendSecondaryProcessorStatus(device alias,status)
+        self.__lbl_commands_module_gve_sendsecondaryprocessorstatus1 = tk.Label(self.__frame_gve_commands_for_gve_top,text='Device Friendly Name')
+        self.__lbl_commands_module_gve_sendsecondaryprocessorstatus1.grid(column=1,row=2,sticky='nw')
+        self.__lbl_commands_module_gve_sendsecondaryprocessorstatus2 = tk.Label(self.__frame_gve_commands_for_gve_top,text='Status')
+        self.__lbl_commands_module_gve_sendsecondaryprocessorstatus2.grid(column=2,row=2,sticky='nw')
+        self.__btn_cmd_gve_sendsecondaryprocessorstatus = tk.Button(self.__frame_gve_commands_for_gve_top,text="SendSecondaryProcessorStatus",width=30,command=self.__cmd_sendsecondaryprocessorstatus_selected_module)
+        self.__btn_cmd_gve_sendsecondaryprocessorstatus.bind('<Return>',enter_on_button(self.__cmd_sendsecondaryprocessorstatus_selected_module))
+        self.__btn_cmd_gve_sendsecondaryprocessorstatus.grid(column=0,row=3,sticky='nw')
+        self.__tb_gve_sendsecondaryprocessorstatus_command1 = tk.Text(self.__frame_gve_commands_for_gve_top,height=1,width=15,wrap='none')
+        self.__tb_gve_sendsecondaryprocessorstatus_command1.bind('<Tab>',focus_next_widget)
+        self.__tb_gve_sendsecondaryprocessorstatus_command1.grid(column=1,row=3,sticky='nw')
+        self.__sv_commands_gve_sendsecondaryprocessorstatus_value = tk.StringVar()
+        self.__sv_commands_gve_sendsecondaryprocessorstatus_value.set('Online')
+        self.__list_commands_gve_sendsecondaryprocessorstatus_value_options = ['Online','Offline']
+        self.__om_commands_gve_sendsecondaryprocessorstatus_value = tk.OptionMenu(self.__frame_gve_commands_for_gve_top,self.__sv_commands_gve_sendsecondaryprocessorstatus_value,*self.__list_commands_gve_sendsecondaryprocessorstatus_value_options)
+        self.__om_commands_gve_sendsecondaryprocessorstatus_value.grid(column=2,row=3,sticky='nw')
+        #ReceiveGVECommand(device id,command,parameter)
+        self.__lbl_commands_module_gve_receivegvecommand1 = tk.Label(self.__frame_gve_commands_for_gve_top,text='Device ID')
+        self.__lbl_commands_module_gve_receivegvecommand1.grid(column=1,row=4,sticky='nw')
+        self.__lbl_commands_module_gve_receivegvecommand2 = tk.Label(self.__frame_gve_commands_for_gve_top,text='Command')
+        self.__lbl_commands_module_gve_receivegvecommand2.grid(column=2,row=4,sticky='nw')
+        self.__lbl_commands_module_gve_receivegvecommand3 = tk.Label(self.__frame_gve_commands_for_gve_top,text='Parameter')
+        self.__lbl_commands_module_gve_receivegvecommand3.grid(column=3,row=4,sticky='nw')
+        self.__btn_cmd_gve_receivegvecommand = tk.Button(self.__frame_gve_commands_for_gve_top,text="ReceiveGVECommand",width=30,command=self.__cmd_receivegvecommand_selected_module)
+        self.__btn_cmd_gve_receivegvecommand.bind('<Return>',enter_on_button(self.__cmd_receivegvecommand_selected_module))
+        self.__btn_cmd_gve_receivegvecommand.grid(column=0,row=5,sticky='nw')
+        self.__tb_gve_receivegvecommand_command1 = tk.Text(self.__frame_gve_commands_for_gve_top,height=1,width=15,wrap='none')
+        self.__tb_gve_receivegvecommand_command1.bind('<Tab>',focus_next_widget)
+        self.__tb_gve_receivegvecommand_command1.grid(column=1,row=5,sticky='nw')
+        self.__sv_commands_gve_receivegvecommand_value1 = tk.StringVar()
+        self.__sv_commands_gve_receivegvecommand_value1.set('Power')
+        self.__list_commands_gve_receivegvecommand_value1_options = ['Power']
+        self.__om_commands_gve_receivegvecommand_value1 = tk.OptionMenu(self.__frame_gve_commands_for_gve_top,self.__sv_commands_gve_receivegvecommand_value1,*self.__list_commands_gve_receivegvecommand_value1_options)
+        self.__om_commands_gve_receivegvecommand_value1.grid(column=2,row=5,sticky='nw')
+        self.__sv_commands_gve_receivegvecommand_value2 = tk.StringVar()
+        self.__sv_commands_gve_receivegvecommand_value2.set('On')
+        self.__list_commands_gve_receivegvecommand_value2_options = ['On','Off']
+        self.__om_commands_gve_receivegvecommand_value2 = tk.OptionMenu(self.__frame_gve_commands_for_gve_top,self.__sv_commands_gve_receivegvecommand_value2,*self.__list_commands_gve_receivegvecommand_value2_options)
+        self.__om_commands_gve_receivegvecommand_value2.grid(column=3,row=5,sticky='nw')
+        #ReceiveGVERoomEvent(device id,room,eventname)
+        self.__lbl_commands_module_gve_receivegveroomevent1 = tk.Label(self.__frame_gve_commands_for_gve_top,text='Room ID')
+        self.__lbl_commands_module_gve_receivegveroomevent1.grid(column=1,row=6,sticky='nw')
+        self.__lbl_commands_module_gve_receivegveroomevent3 = tk.Label(self.__frame_gve_commands_for_gve_top,text='EventName')
+        self.__lbl_commands_module_gve_receivegveroomevent3.grid(column=2,row=6,sticky='nw')
+        self.__btn_cmd_gve_receivegveroomevent = tk.Button(self.__frame_gve_commands_for_gve_top,text="ReceiveGVERoomEvent",width=30,command=self.__cmd_receivegveroomevent_selected_module)
+        self.__btn_cmd_gve_receivegveroomevent.bind('<Return>',enter_on_button(self.__cmd_receivegveroomevent_selected_module))
+        self.__btn_cmd_gve_receivegveroomevent.grid(column=0,row=7,sticky='nw')
+        self.__tb_gve_receivegveroomevent_command1 = tk.Text(self.__frame_gve_commands_for_gve_top,height=1,width=15,wrap='none')
+        self.__tb_gve_receivegveroomevent_command1.bind('<Tab>',focus_next_widget)
+        self.__tb_gve_receivegveroomevent_command1.grid(column=1,row=7,sticky='nw')
+        self.__sv_commands_gve_receivegveroomevent_value1 = tk.StringVar()
+        self.__sv_commands_gve_receivegveroomevent_value1.set('SystemOn')
+        self.__list_commands_gve_receivegveroomevent_value1_options = ['SystemOn','SystemOff']
+        self.__om_commands_gve_receivegveroomevent_value1 = tk.OptionMenu(self.__frame_gve_commands_for_gve_top,self.__sv_commands_gve_receivegveroomevent_value1,*self.__list_commands_gve_receivegveroomevent_value1_options)
+        self.__om_commands_gve_receivegveroomevent_value1.grid(column=2,row=7,sticky='nw')
+
 
         self.__device_commands_frames = {
             'Circuit Breaker':self.__frame_device_commands_for_circuit_breaker,
@@ -1112,14 +1324,16 @@ class ProgramDebuggerClass():
             'eBUSDevice':self.__frame_device_commands_for_ebusdevice,
             'UI':self.__frame_device_commands_for_ui,
             'VirtualUI':self.__frame_device_virtualui,
-            'Print':self.__frame_device_print}
+            'Print':self.__frame_device_print,
+            'GVE':self.__frame_gve_commands}
         self.__device_virtualui_mode_frames = {
             'Navigation':self.__frame_device_commands_for_virtualui_navigation,
             'Button':self.__frame_device_commands_for_virtualui_button,
             'Knob':self.__frame_device_commands_for_virtualui_knob,
             'Label':self.__frame_device_commands_for_virtualui_label,
             'Level':self.__frame_device_commands_for_virtualui_level,
-            'Slider':self.__frame_device_commands_for_virtualui_slider}
+            'Slider':self.__frame_device_commands_for_virtualui_slider,
+            'Video':self.__frame_device_commands_for_virtualui_video}
 
         self.__btn_colors = None
         self.__initialize_hide()
@@ -1634,6 +1848,86 @@ class ProgramDebuggerClass():
             device_id = self.__get_device_log_id(self.__selected_module)
             cmd = '~Command~:{}:HideAllPopups()'.format(device_id)
             self.processor_communication.SendToSystem(cmd)
+    def __cmd_setledautobrightness_selected_device(self):
+        if self.__selected_module is not None:
+            device_id = self.__get_device_log_id(self.__selected_module)
+            cmd_dict = {}
+            device_type = self.device_info[device_id]['type']
+            tbs = {'UI':[self.__tb_cmd_ui_setledautobrightness1,self.__tb_cmd_ui_setledautobrightness2]}
+            if device_type not in tbs:
+                return
+            cmd_dict['value1'] = tbs[device_type][0].get('1.0',tk.END)
+            cmd_dict['value1'] = cmd_dict['value1'].strip()
+            cmd_dict['value2'] = tbs[device_type][1].get('1.0',tk.END)
+            cmd_dict['value2'] = cmd_dict['value2'].strip()
+            if cmd_dict['value1'] == '':
+                return
+            if cmd_dict['value2'] == '':
+                return
+            cmd_dict_str = json.dumps(cmd_dict)
+            cmd = '~Command~:{}:SetLEDAutoBrightness({})'.format(device_id,cmd_dict_str)
+            self.processor_communication.SendToSystem(cmd)
+    def __cmd_setledbrightness_selected_device(self):
+        if self.__selected_module is not None:
+            device_id = self.__get_device_log_id(self.__selected_module)
+            cmd_dict = {}
+            device_type = self.device_info[device_id]['type']
+            tbs = {'UI':[self.__tb_cmd_ui_setledbrightness1,self.__tb_cmd_ui_setledbrightness2]}
+            if device_type not in tbs:
+                return
+            cmd_dict['value1'] = tbs[device_type][0].get('1.0',tk.END)
+            cmd_dict['value1'] = cmd_dict['value1'].strip()
+            cmd_dict['value2'] = tbs[device_type][1].get('1.0',tk.END)
+            cmd_dict['value2'] = cmd_dict['value2'].strip()
+            if cmd_dict['value1'] == '':
+                return
+            if cmd_dict['value2'] == '':
+                return
+            cmd_dict_str = json.dumps(cmd_dict)
+            cmd = '~Command~:{}:SetLEDBrightness({})'.format(device_id,cmd_dict_str)
+            self.processor_communication.SendToSystem(cmd)
+    def __cmd_setledstate_selected_device(self):
+        if self.__selected_module is not None:
+            device_id = self.__get_device_log_id(self.__selected_module)
+            cmd_dict = {}
+            device_type = self.device_info[device_id]['type']
+            tbs = {'UI':[self.__tb_cmd_ui_setledstate1,self.__tb_cmd_ui_setledstate2]}
+            if device_type not in tbs:
+                return
+            cmd_dict['value1'] = tbs[device_type][0].get('1.0',tk.END)
+            cmd_dict['value1'] = cmd_dict['value1'].strip()
+            cmd_dict['value2'] = tbs[device_type][1].get('1.0',tk.END)
+            cmd_dict['value2'] = cmd_dict['value2'].strip()
+            if cmd_dict['value1'] == '':
+                return
+            if cmd_dict['value2'] == '':
+                return
+            cmd_dict_str = json.dumps(cmd_dict)
+            cmd = '~Command~:{}:SetLEDState({})'.format(device_id,cmd_dict_str)
+            self.processor_communication.SendToSystem(cmd)
+    def __cmd_setledblinking_selected_device(self):
+        if self.__selected_module is not None:
+            device_id = self.__get_device_log_id(self.__selected_module)
+            cmd_dict = {}
+            device_type = self.device_info[device_id]['type']
+            tbs = {'UI':[self.__tb_cmd_ui_setledblinking1,self.__tb_cmd_ui_setledblinking2,self.__tb_cmd_ui_setledblinking3]}
+            if device_type not in tbs:
+                return
+            cmd_dict['value1'] = tbs[device_type][0].get('1.0',tk.END)
+            cmd_dict['value1'] = cmd_dict['value1'].strip()
+            cmd_dict['value2'] = tbs[device_type][1].get('1.0',tk.END)
+            cmd_dict['value2'] = cmd_dict['value2'].strip()
+            cmd_dict['value3'] = tbs[device_type][2].get('1.0',tk.END)
+            cmd_dict['value3'] = cmd_dict['value3'].strip()
+            if cmd_dict['value1'] == '':
+                return
+            if cmd_dict['value2'] == '':
+                return
+            if cmd_dict['value3'] == '':
+                return
+            cmd_dict_str = json.dumps(cmd_dict)
+            cmd = '~Command~:{}:SetLEDBlinking({})'.format(device_id,cmd_dict_str)
+            self.processor_communication.SendToSystem(cmd)
     def __cmd_wake_selected_device(self):
         if self.__selected_module is not None:
             device_id = self.__get_device_log_id(self.__selected_module)
@@ -1804,7 +2098,8 @@ class ProgramDebuggerClass():
             tbs = {'Button':[self.__tb_cmd_virtualui_button_setvisible1,self.__tb_cmd_virtualui_button_setvisible2],
                 'Label':[self.__tb_cmd_virtualui_label_setvisible1,self.__tb_cmd_virtualui_label_setvisible2],
                 'Level':[self.__tb_cmd_virtualui_level_setvisible1,self.__tb_cmd_virtualui_level_setvisible2],
-                'Slider':[self.__tb_cmd_virtualui_slider_setvisible1,self.__tb_cmd_virtualui_slider_setvisible2]}
+                'Slider':[self.__tb_cmd_virtualui_slider_setvisible1,self.__tb_cmd_virtualui_slider_setvisible2],
+                'Video':[self.__tb_cmd_virtualui_video_setvisible1,self.__tb_cmd_virtualui_video_setvisible2]}
             if device_type not in tbs:
                 return
             cmd_dict['value1'] = tbs[device_type][0].get('1.0',tk.END)
@@ -1875,15 +2170,13 @@ class ProgramDebuggerClass():
             cmd = '~Command~:{}:Dec({})'.format(device_id,cmd_dict_str)
             self.processor_communication.SendToSystem(cmd)
 
-        #self.__btn_tb_view_status_view['bg'] = '#f0f0f0'
         self.__toggle_button(self.__btn_tb_view_status_view,1)
-        #self.__btn_tb_view_command_view['bg'] = 'sky blue'
         self.__toggle_button(self.__btn_tb_view_command_view,0)
     def __set_device_virtualui_mode(self,mode):
         def f():
             self.__selected_virtualui_mode = mode
-            nav_btns = [self.__btn_mode_virtualui_navigation,self.__btn_mode_virtualui_buttons,self.__btn_mode_virtualui_knobs,self.__btn_mode_virtualui_labels,self.__btn_mode_virtualui_levels,self.__btn_mode_virtualui_sliders]
-            keys = ['Navigation','Button','Knob','Label','Level','Slider']
+            nav_btns = [self.__btn_mode_virtualui_navigation,self.__btn_mode_virtualui_buttons,self.__btn_mode_virtualui_knobs,self.__btn_mode_virtualui_labels,self.__btn_mode_virtualui_levels,self.__btn_mode_virtualui_sliders,self.__btn_mode_virtualui_videos]
+            keys = ['Navigation','Button','Knob','Label','Level','Slider','Video']
             for key in keys:
                 index = keys.index(key)
                 self.Hide(self.__device_virtualui_mode_frames[key])
@@ -1894,7 +2187,106 @@ class ProgramDebuggerClass():
             #nav_btns[index]['bg'] = 'sky blue'
             self.__toggle_button(nav_btns[index],1)
         return f
-
+    def __cmd_setinput_selected_device(self):
+        if self.__selected_module is not None:
+            device_id = self.__get_device_log_id(self.__selected_module)
+            cmd_dict = {}
+            device_type = self.__selected_virtualui_mode
+            tbs = {'Video':[self.__tb_cmd_virtualui_video_setinput1,self.__sv_commands_cmd_virtualui_video_setinput_value]}
+            if device_type not in tbs:
+                return
+            cmd_dict['value1'] = tbs[device_type][0].get('1.0',tk.END)
+            cmd_dict['value1'] = cmd_dict['value1'].strip()
+            cmd_dict['value1'] = cmd_dict['value1'].split(',')
+            cmd_dict['value2'] = tbs[device_type][1].get()
+            cmd_dict_str = json.dumps(cmd_dict)
+            cmd = '~Command~:{}:SetInput({})'.format(device_id,cmd_dict_str)
+            self.processor_communication.SendToSystem(cmd)
+    def __cmd_setstreamsource_selected_device(self):
+        if self.__selected_module is not None:
+            device_id = self.__get_device_log_id(self.__selected_module)
+            cmd_dict = {}
+            device_type = self.__selected_virtualui_mode
+            tbs = {'Video':[self.__tb_cmd_virtualui_video_setstreamsource1,self.__tb_cmd_virtualui_video_setstreamsource2]}
+            if device_type not in tbs:
+                return
+            cmd_dict['value1'] = tbs[device_type][0].get('1.0',tk.END)
+            cmd_dict['value1'] = cmd_dict['value1'].strip()
+            cmd_dict['value2'] = tbs[device_type][1].get('1.0',tk.END)
+            cmd_dict['value2'] = cmd_dict['value2'].strip()
+            if cmd_dict['value1'] == '' or cmd_dict['value2'] == '':
+                return
+            cmd_dict['value1'] = cmd_dict['value1'].split(',')
+            cmd_dict_str = json.dumps(cmd_dict)
+            cmd = '~Command~:{}:SetStreamSource({})'.format(device_id,cmd_dict_str)
+            self.processor_communication.SendToSystem(cmd)
+    def __cmd_sendstatus_selected_module(self):
+        if self.__selected_module is not None:
+            device_id = self.__get_device_log_id(self.__selected_module)
+            cmd_dict = {}
+            device_type = self.device_info[device_id]['type']
+            tbs = {'GVE':[self.__tb_gve_sendstatus_command1,self.__sv_commands_gve_sendstatus_value,self.__tb_gve_sendstatus_command3]}
+            if device_type not in tbs:
+                return
+            cmd_dict['value1'] = tbs[device_type][0].get('1.0',tk.END)
+            cmd_dict['value1'] = cmd_dict['value1'].strip()
+            cmd_dict['value2'] = tbs[device_type][1].get()
+            cmd_dict['value3'] = tbs[device_type][2].get('1.0',tk.END)
+            cmd_dict['value3'] = cmd_dict['value3'].strip()
+            if cmd_dict['value1'] == '' or cmd_dict['value3'] == '':
+                return
+            cmd_dict_str = json.dumps(cmd_dict)
+            cmd = '~Command~:{}:SendStatus({})'.format(device_id,cmd_dict_str)
+            self.processor_communication.SendToSystem(cmd)
+    def __cmd_sendsecondaryprocessorstatus_selected_module(self):
+        if self.__selected_module is not None:
+            device_id = self.__get_device_log_id(self.__selected_module)
+            cmd_dict = {}
+            device_type = self.device_info[device_id]['type']
+            tbs = {'GVE':[self.__tb_gve_sendsecondaryprocessorstatus_command1,self.__sv_commands_gve_sendsecondaryprocessorstatus_value]}
+            if device_type not in tbs:
+                return
+            cmd_dict['value1'] = tbs[device_type][0].get('1.0',tk.END)
+            cmd_dict['value1'] = cmd_dict['value1'].strip()
+            cmd_dict['value2'] = tbs[device_type][1].get()
+            if cmd_dict['value1'] == '':
+                return
+            cmd_dict_str = json.dumps(cmd_dict)
+            cmd = '~Command~:{}:SendSecondaryProcessorStatus({})'.format(device_id,cmd_dict_str)
+            self.processor_communication.SendToSystem(cmd)
+    def __cmd_receivegvecommand_selected_module(self):
+        if self.__selected_module is not None:
+            device_id = self.__get_device_log_id(self.__selected_module)
+            cmd_dict = {}
+            device_type = self.device_info[device_id]['type']
+            tbs = {'GVE':[self.__tb_gve_receivegvecommand_command1,self.__sv_commands_gve_receivegvecommand_value1,self.__sv_commands_gve_receivegvecommand_value2]}
+            if device_type not in tbs:
+                return
+            cmd_dict['value1'] = tbs[device_type][0].get('1.0',tk.END)
+            cmd_dict['value1'] = cmd_dict['value1'].strip()
+            cmd_dict['value2'] = tbs[device_type][1].get()
+            cmd_dict['value3'] = tbs[device_type][2].get()
+            if cmd_dict['value1'] == '':
+                return
+            cmd_dict_str = json.dumps(cmd_dict)
+            cmd = '~Command~:{}:ReceiveGVECommand({})'.format(device_id,cmd_dict_str)
+            self.processor_communication.SendToSystem(cmd)
+    def __cmd_receivegveroomevent_selected_module(self):
+        if self.__selected_module is not None:
+            device_id = self.__get_device_log_id(self.__selected_module)
+            cmd_dict = {}
+            device_type = self.device_info[device_id]['type']
+            tbs = {'GVE':[self.__tb_gve_receivegveroomevent_command1,self.__sv_commands_gve_receivegveroomevent_value1]}
+            if device_type not in tbs:
+                return
+            cmd_dict['value1'] = tbs[device_type][0].get('1.0',tk.END)
+            cmd_dict['value1'] = cmd_dict['value1'].strip()
+            cmd_dict['value2'] = tbs[device_type][1].get()
+            if cmd_dict['value1'] == '':
+                return
+            cmd_dict_str = json.dumps(cmd_dict)
+            cmd = '~Command~:{}:ReceiveGVERoomEvent({})'.format(device_id,cmd_dict_str)
+            self.processor_communication.SendToSystem(cmd)
     def __eval_string(self,text:'str'):
         text.replace('\\r','\\x0d')
         text.replace('\\n','\\x0a')
@@ -1953,9 +2345,21 @@ class ProgramDebuggerClass():
         self.__tb_log.update()
     def __show_device_status(self,pos):
         device_id = self.__get_device_log_id(pos)
-        txt = ''
         if device_id in self.device_info:
-            txt = json.dumps(self.device_info[device_id]['status'],sort_keys=True,indent=2)
+            unsorted_dict = self.device_info[device_id]['status']
+            txt = ''
+            errmsg = {'ERROR':'There was an issue parsing the device status. Please post as an issue to the GitHub with these details','Unsorted Value':str(unsorted_dict)}
+            txt = ''
+            try:
+                txt = json.dumps(unsorted_dict,sort_keys=True,indent=2)
+            except Exception as e1:
+                try:
+                    errmsg['Detail1'] = str(e1)
+                    sorted_dict = dict(sorted(unsorted_dict.items(), key=lambda x: str(x[0])))
+                    txt = json.dumps(sorted_dict,indent=2)
+                except Exception as e2:
+                    errmsg['Detail2'] = str(e2)
+                    txt = json.dumps(errmsg,indent=2)
         posy = self.__scrollb_statusy.get()
         self.__tb_status.delete('1.0','end')
         self.__tb_status.insert(tk.END,txt)
@@ -1983,10 +2387,11 @@ class ProgramDebuggerClass():
             device_id = self.__get_device_log_id(self.__selected_module)
             val = self.__var_device_print_to_trace.get()
             cmd_dict = {'option':'print to trace'}
-            if val == 1:
+            if val:
                 cmd_dict['value'] = True
             else:
                 cmd_dict['value'] = False
+
             cmd_dict_str = json.dumps(cmd_dict)
             cmd = '~Option~:{}:Option({})'.format(device_id,cmd_dict_str)
             self.processor_communication.SendToSystem(cmd)
@@ -2013,10 +2418,8 @@ class ProgramDebuggerClass():
         device_id = self.__get_device_log_id(pos)
         self.__lbl_selected_device_name.config(text= ' Selected: {} '.format(self.device_info[device_id]['name']))
         self.Show(self.__frame_print_to_trace)
-        if self.device_info[device_id]['options']['print to trace']:
-            self.__var_device_print_to_trace.set(1)
-        else:
-            self.__var_device_print_to_trace.set(0)
+        check_val = self.device_info[device_id]['options']['print to trace']
+        self.__var_device_print_to_trace.set({True:1,False:0}[check_val])
         if 'communication' in self.device_info[device_id]:
             self.Hide(self.__frame_device_reinit)
             conn_details = self.device_info[device_id]['communication']
@@ -2193,11 +2596,13 @@ class ProgramDebuggerClass():
         return e
 
     def SetThemeColors(self,theme):
-        btn = self.__btn_tb_clear_all_logs
-        if theme == 'dark':# dark
+        if theme == 'dark':
             self.__btn_colors = {'inactive': '#1c1c1c', 'active': '#2f60d8', 'inactive text': '#fafafa', 'active text': '#ffffff'}
+            self.__chkbox_device_print_to_trace['selectcolor'] = '#1c1c1c'
         else:
             self.__btn_colors = {'inactive': '#fafafa', 'active': '#2f60d8', 'inactive text': '#1c1c1c', 'active text': '#ffffff'}
+            self.__chkbox_device_print_to_trace['selectcolor'] = '#ffffff'
+
 
 
 
@@ -2205,7 +2610,6 @@ class ProgramDebuggerClass():
         if 'System' in btn.cget('background'):return
         if self.__btn_colors == None:
             self.__btn_colors = {'inactive':btn.cget('background'),'active':btn.cget('activebackground'),'inactive text':btn.cget('foreground'),'active text':btn.cget('activeforeground')}
-            #print(self.__btn_colors)
         if state == 1:
             btn['relief'] = 'sunken'
             btn['background'] = self.__btn_colors['active']
@@ -2313,6 +2717,10 @@ class ProgramDebuggerClass():
                 if 'ConnectionStatus' in status:
                     connectionstatus = status['ConnectionStatus']['Status']
                     if 'Live' in connectionstatus:
+                        if connectionstatus['Live'] == 'Online':
+                            color = 'green'
+                        if connectionstatus['Live'] == 'Offline':
+                            color = 'red'
                         if connectionstatus['Live'] == 'Connected':
                             color = 'green'
                         if connectionstatus['Live'] == 'Not Connected':
@@ -2325,6 +2733,12 @@ class ProgramDebuggerClass():
                         if onlinestatus['Live'] == 'Online':
                             color = 'green'
                         if onlinestatus['Live'] == 'Offline':
+                            color = 'red'
+                        if onlinestatus['Live'] == 'Connected':
+                            color = 'green'
+                        if onlinestatus['Live'] == 'Not Connected':
+                            color = 'red'
+                        if onlinestatus['Live'] == 'Disconnected':
                             color = 'red'
                 self.__device_tree.tag_configure(str(device_id),foreground=color) #todo
                 menu = self.__om_devices.children['menu']

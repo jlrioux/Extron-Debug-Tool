@@ -3,8 +3,7 @@
 from tkinter import *
 from Timer import Timer
 from Wait import Wait
-import json
-import re
+import json,re,time
 from EthernetClientInterface import EthernetClientInterface
 from typing import TYPE_CHECKING
 if TYPE_CHECKING:
@@ -15,8 +14,6 @@ VERSION='1.8.0.5'
 class ProcessorCommunicationClass():
     def __init__(self,vars:'variablesclass'):
         self.vars = vars
-        #self.t_keep_client_connected = Timer(10,self.fn_keep_client_connected())
-        #self.t_keep_client_connected.Stop()
         self.__devices_clientbuffer = ''
 
         self.__connect_to_system = False
@@ -58,6 +55,11 @@ class ProcessorCommunicationClass():
             self.vars.ui_view1.SetConnectStatus('Connecting...')
             self.vars.ui_view1.devices_client = EthernetClientInterface(self.vars.ui_view1.ip_address,1988)
             self.SetClient()
+            self.vars.ui_view1.devices_client.Connect()
+        else:
+            Wait(1)
+            def w():
+                self.vars.ui_view1.devices_client.Connect()
         self.__connect_to_system = True
     def system_connection_stop(self):
         self.__connect_to_system = False
@@ -67,28 +69,13 @@ class ProcessorCommunicationClass():
             self.vars.ui_view1.devices_client = None
             self.vars.ui_view1.system_connected_status = ''
 
-    def fn_keep_client_connected(self):
-        def t(timer,count):
-            if not self.__system_is_connected and self.vars.ui_view1.devices_client:
-                self.vars.ui_view1.SetConnectStatus('Connecting...')
-                self.vars.ui_view1.system_connected_status = self.vars.ui_view1.devices_client.Connect()
-                if not self.__system_is_connected:
-                    self.vars.ui_view1.SetConnectStatus('Timeout')
-                elif self.vars.ui_view1.system_connected_status != 'Connected':
-                    self.vars.ui_view1.SetConnectStatus('Timeout')
-                    self.t_keep_client_connected.Stop()
-            elif self.__system_is_connected and self.vars.ui_view1.devices_client:
-                self.t_keep_client_connected.Stop()
-        return t
-
     def __f_connection_manager(self):
         def t(timer,count):
-            if not self.vars.ui_view1.devices_client:
-                return
             if self.__connect_to_system and not self.__system_is_connected:
-                self.vars.ui_view1.devices_client.Connect()
+                self.system_connection_start()
             elif self.__system_is_connected and not self.__connect_to_system:
-                self.vars.ui_view1.devices_client.Disconnect()
+                if self.vars.ui_view1.devices_client:
+                    self.vars.ui_view1.devices_client.Disconnect()
         return t
 
     def __removesuffix(self,data:'str',end:'str'):
@@ -105,6 +92,13 @@ class ProcessorCommunicationClass():
             matches = re.findall(self.__rxmatchpattern,temp_buf)
             for match in matches:
                 match_type = match[0]
+                if 'RegisterDevicesFailed' == match_type:
+                    print('error register devices system, error: \nRepeat register for device:RegisterDevicesFailed')
+                    device_info = {}
+                    self.__devices_clientbuffer = ''
+                    time.sleep(1) #give the system some time to think about what it's done
+                    self.SendToSystem('~RegisterNext~:{}'.format(json.dumps(list(self.vars.ui_view1.device_info.keys()))))
+                    return
                 if 'RegisterDevices' == match_type:
                     json_data = match[1]
                     try:
@@ -128,6 +122,7 @@ class ProcessorCommunicationClass():
                         return
                     self.vars.ui_view1.SetDeviceInfo(device_info)
                     self.vars.ui_view1.SetDeviceList()
+                    print('sending registernext:{}'.format(json.dumps(list(self.vars.ui_view1.device_info.keys()))))
                     self.SendToSystem('~RegisterNext~:{}'.format(json.dumps(list(self.vars.ui_view1.device_info.keys()))))
                 if 'UpdateDeviceComs' == match_type:
                     json_data = match[1]
@@ -201,6 +196,9 @@ class ProcessorCommunicationClass():
         self.SendToSystem('p9oai23jr09p8fmvw98foweivmawthapw4t-{}'.format(VERSION))
         self.vars.ui_view1.devices_client.StartKeepAlive(5,'ping(){}'.format(self.__delim))
     def __HandleDisconnected(self,client,state:'str'):
+        try:
+            client.Disconnect()
+        except:pass
         self.__system_is_connected = False
         self.vars.ui_view1.system_connected_status = state
         self.vars.ui_view1.SetConnectStatus(state)

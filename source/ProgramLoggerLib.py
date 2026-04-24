@@ -40,15 +40,6 @@ class DateTimePickerWindowClass():
 
         self.time_picker = SpinTimePickerOld(self.frame)
         self.time_picker.addAll(constants.HOURS12)
-        if False: #time picker does not support initial time set
-            if initial_time:
-                print('initial time:{}'.format(initial_time))
-                t,ampm = initial_time.split(' ')
-                hour,minute = t.split(':')
-                if ampm == 'PM':
-                    hour = int(hour) + 12
-                self.time_picker.setMinutes(int(minute))
-                self.time_picker.setHours(int(hour))
 
 
         self.time_picker.grid(column=0,row=1,pady=10,padx=10,sticky='nsew')
@@ -124,7 +115,6 @@ class DebugLogDataManager():
         self.__status_callback = func
         self.status_callback = func
     def set_update_log_callback(self,func):
-        print('setting log callback')
         self.__log_callback = func
     def pull_data_from_ip(self,ip,password='extron',start_date=None,end_date=None):
         self.__ip_address = ip

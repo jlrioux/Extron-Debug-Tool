@@ -1,16 +1,16 @@
 '''
-Version: 1.8.0.6
+Version: 1.10.0.0
 
 Python Version 3.10
 
 Created By: Jean-Luc Rioux
 
-Last Modified: 2025-03-06
+Last Modified: 2026-04-24
 
-Description: Provides debugging solutions to Extron control system programs that have implemented the InterfaceWrapper class located in tools.py
+Description: Provides debugging solutions to Extron control system programs that have implemented the various wrapper classes located in tools.py
 
-Changelog:
-    https://docs.google.com/spreadsheets/d/1v7Mcngqx15kRCHPC9GCGSz0uw6Fbn0OK-kflxdNUjv4/edit#gid=0
+github:
+    https://github.com/jlrioux/Extron-Debug-Tool
 
 
 '''
