@@ -59,7 +59,6 @@ def check_api_version(minimum_api_version:str):
 
 
 from extronlib import event as _event
-from extronlib.system import File
 from extronlib.device import UIDevice as _UIDevice
 from extronlib.device import ProcessorDevice as _ProcessorDevice
 from extronlib.device import SPDevice as _SPDevice
@@ -73,7 +72,7 @@ if sys_is_xi:
     from extronlib.ui import StreamSource as _StreamSource
     from extronlib.ui import Video as _Video
 from extronlib.ui import Button as _Button, Knob as _Knob, Label as _Label, Level as _Level, Slider as _Slider
-from extronlib.system import Timer as _Timer, Wait as _Wait, File as _File, SaveProgramLog as _SaveProgramLog, ProgramLog as _ProgramLog
+from extronlib.system import Timer as _Timer, Wait as _Wait, File as _File, SaveProgramLog as _SaveProgramLog, ProgramLog as _ProgramLog,Ping as _Ping
 from datetime import datetime as _datetime
 from datetime import timedelta as _timedelta
 import queue as _queue
@@ -85,8 +84,8 @@ import time as _time
 """
 Author: Jean-Luc Rioux
 Company: Valley Communications
-Last Modified Date: 2026-04-16
-Version: 1.10.0.0
+Last Modified Date: 2026-06-17
+Version: 1.10.0.2
 Minimum Pro Controller FW: 3.10
 Minimum Pro Q xi Controller FW: 1.09
 
@@ -263,6 +262,15 @@ Changelog:
             - print to trace displays properly when toggled in dark theme
             - reconnect loop should no longer happen if processor reboots while debugging is active
             - status dictionaries with mixed-type keys will no longer fail to alphabetically sort in status view
+    v 1.10.0.1 - tools.py modification
+        - GVE config file now supports source usage reporting without program modification.
+            - only 1 "System Source Usage" section allowed in the config file, doesn't work with cascading switching.
+        - fully tested through GVE functions
+        - GVE wrapper now pings GVE server once communication is established to supply some form of reliable connected status feedback
+    v 1.10.0.2 - tools.py modification
+        - Add HTTPModuleWrapper.
+            - only commands to and events from the module are logged.
+        - VirtualUI - now checks if object is defined on a panel before doing a 'Set' command, aka 'SetText' to avoid pointless entries in program log.
 """
 
 
@@ -873,8 +881,9 @@ class DebugServer():
 
     def __init_gve_from_config():
         DebugServer.__gve_check_done = True
-        File.ChangeDir('/')
-        dirlist = File.ListDir()
+        found_file = False
+        _File.ChangeDir('/')
+        dirlist = _File.ListDir()
         file_count = 0
         for filename in dirlist:
             if 'gve.json' in filename:
@@ -918,7 +927,8 @@ class DebugServer():
                         return
                 if hostdevice is not None:
                     DebugServer.__gve_instance = GVEInterfaceWrapper(server_info['Hostname'],hostdevice,int(server_info['IPPort']),server_info['Interface'])
-
+                    found_file = True
+        return found_file
     def __fn_debug_server_listen_timer(timer,count):
         if DebugServer.__debug_server_listen_busy:return
         DebugServer.__debug_server_listen_busy = True
@@ -1089,7 +1099,7 @@ class DebugServer():
                 result[key]['communication']['mode'] = str(interface.Mode)
                 result[key]['communication']['port'] = str(interface.Port)
                 result[key]['communication']['baud'] = '{},{},{},{}'.format(str(interface.Baud),str(interface.Data),str(interface.Parity),str(interface.Stop))
-            elif comm_type in ['SerialOverEthernet','Ethernet','SSH','GVE']:
+            elif comm_type in ['SerialOverEthernet','Ethernet','SSH','GVE','HTTP']:
                 result[key]['status'] = instances[key]['instance'].device.Commands
                 result[key]['communication']['host'] = instances[key]['instance'].GetHostname()
                 result[key]['communication']['mode'] = str(interface.Protocol)
@@ -1237,7 +1247,8 @@ class DebugServer():
             listening_port = int(listening_port)
             self._DebugServer__debug_instances[listening_port] = {}
             if not self._DebugServer__gve_check_done and instance_type not in ['Print','GVE','VirtualUI']:
-                DebugServer.__init_gve_from_config()
+                res = DebugServer.__init_gve_from_config()
+                if res:_ProgramLog('GVE: Initialized from configuration file','info')
             self._DebugServer__debug_instances[listening_port]['name'] = friendly_name
             self._DebugServer__debug_instances[listening_port]['instance'] = instance
             self._DebugServer__debug_instances[listening_port]['type'] = instance_type
@@ -1294,37 +1305,48 @@ class DebugServer():
         return None
     def __register_device_in_gve(friendly_name,instance,instance_type):
         if instance_type in ['GVE','Print','VirtualUI']:return
+        #_ProgramLog('GVE: gve data keys:{}'.format(__class__.__gve_data.keys()))
         for device_key in __class__.__gve_data:
             key_parts = device_key.split(':')
+            #_ProgramLog('GVE: key part[0]:{} match:{}'.format(key_parts[0],friendly_name == key_parts[0]))
+            is_module = instance_type in ['Ethernet','SSH','Serial','SerialOverEthernet','Dante']
             if friendly_name == key_parts[0]:
                 gve_data = __class__.__gve_data[device_key]
                 if hasattr(instance,'Commands'):commands = instance.Commands
                 elif hasattr(instance.device,'Commands'):commands = instance.device.Commands
                 else:return
                 # for hardware, there are no qualifier field used
-                for cmd in ['OnlineStatus','Online','OfflineStatus','Offline','ConnectionStatus','Power']:
-                    if cmd in commands:
-                        f = __class__.__make_gve_device_handler(gve_data['GVE Device ID'],'Connection',cmd)
-                        instance.SubscribeStatus(cmd,f)
-                        try: #this may not yet be instantiated, don't worry if it fails
-                            __class__.__gve_instance.SendStatus(gve_data['GVE Device ID'],'Connection',commands[cmd]['Status']['Live'])
-                        except:pass
-                # device modules use connectionstatus with a qualifier
-                for cmd in ['ConnectionStatus']:
-                    if cmd in commands:
-                        f = __class__.__make_gve_device_handler(gve_data['GVE Device ID'],'Connection',cmd)
-                        instance.SubscribeStatus(cmd,None,f)
-                        try: #this may not yet be instantiated, don't worry if it fails
-                            __class__.__gve_instance.SendStatus(gve_data['GVE Device ID'],'Connection','Unknown')
-                        except:pass
+                if not is_module:
+                    for cmd in ['OnlineStatus','Online','OfflineStatus','Offline','ConnectionStatus','Power']:
+                        if cmd in commands:
+                            _ProgramLog('GVE: Register:{}:{}:{}'.format(gve_data['GVE Device ID'],friendly_name,cmd),'info')
+                            f = __class__.__make_gve_device_handler(gve_data['GVE Device ID'],'Connection',cmd)
+                            instance.SubscribeStatus(cmd,f)
+                            try: #this may not yet be instantiated, don't worry if it fails
+                                __class__.__gve_instance.SendStatus(gve_data['GVE Device ID'],'Connection',commands[cmd]['Status']['Live'])
+                            except:pass
+                    # device modules use connectionstatus with a qualifier
+                else:
+                    for cmd in ['ConnectionStatus']:
+                        if len(key_parts) == 1:qualifier_dict = None
+                        else:qualifier_dict = {'Device ID':key_parts[1]}
+                        if cmd in commands:
+                            _ProgramLog('GVE: Register:{}:{}:{}'.format(gve_data['GVE Device ID'],friendly_name,cmd),'info')
+                            f = __class__.__make_gve_device_handler(gve_data['GVE Device ID'],'Connection',cmd)
+                            instance.SubscribeStatus(cmd,None,f)
+                            try: #this may not yet be instantiated, don't worry if it fails
+                                __class__.__gve_instance.SendStatus(gve_data['GVE Device ID'],'Connection','Unknown')
+                            except:pass
                 for cmd in ['Power']:
                     if len(key_parts) == 1:qualifier_dict = None
                     else:qualifier_dict = {'Device ID':key_parts[1]}
                     value_map = {'On':'On','Off':'Off','Warming':'Warming','Cooling':'Cooling','Warming Up':'Warming','Cooling Down':'Cooling'}
-                    if cmd in commands:
+                    if cmd in commands and is_module:
+                        _ProgramLog('GVE: Register:{}:{}:{}:{}'.format(gve_data['GVE Device ID'],friendly_name,cmd,qualifier_dict),'info')
                         f = __class__.__make_gve_device_handler(gve_data['GVE Device ID'],'Power',cmd,qualifier_dict,value_map)
                         instance.SubscribeStatus(cmd,qualifier_dict,f)
-                        __class__.__gve_instance.SendStatus(gve_data['GVE Device ID'],'Power','Uknown')
+                        try:__class__.__gve_instance.SendStatus(gve_data['GVE Device ID'],'Power','Uknown')
+                        except:pass
                         fc = __class__.__make_gve_command_handler(gve_data['GVE Device ID'],'Power',instance,cmd,qualifier_dict)
                         __class__.__gve_instance.SubscribeStatus('ReceiveGVECommand',fc)
                         if 'Poll Interval' in gve_data:__class__.__gve_polling_list.append([instance,cmd,qualifier_dict,int(gve_data['Poll Interval'])])
@@ -1333,9 +1355,11 @@ class DebugServer():
                     else:qualifier_dict = {'Device ID':key_parts[1]}
                     value_map = {'On':'Off','Off':'On'}
                     if cmd in commands:
+                        _ProgramLog('GVE: Register:{}:{}:{}:{}'.format(gve_data['GVE Device ID'],friendly_name,cmd,qualifier_dict),'info')
                         f = __class__.__make_gve_device_handler(gve_data['GVE Device ID'],'Power',cmd,qualifier_dict,value_map)
                         instance.SubscribeStatus(cmd,qualifier_dict,f)
-                        __class__.__gve_instance.SendStatus(gve_data['GVE Device ID'],'Power','Uknown')
+                        try:__class__.__gve_instance.SendStatus(gve_data['GVE Device ID'],'Power','Uknown')
+                        except:pass
                         c_value_map = {'On':'Off','Off':'On'}
                         fc = __class__.__make_gve_command_handler(gve_data['GVE Device ID'],'Power',instance,cmd,qualifier_dict,c_value_map)
                         __class__.__gve_instance.SubscribeStatus('ReceiveGVECommand',fc)
@@ -1346,12 +1370,13 @@ class DebugServer():
                         lamp_count += 1
                         command = lamp_status_data['Command']
                         gve_command = 'Lamp {} Hours'.format(lamp_count)
-                        if len(key_parts) == 1:qualifier_dict = {}
+                        if len(key_parts) == 1:qualifier_dict = None
                         else:qualifier_dict = {'Device ID':key_parts[1]}
                         if 'Qualifier' in lamp_status_data:
                             if qualifier_dict == None: qualifier_dict = lamp_status_data['Qualifier']
                             else: qualifier_dict.update(lamp_status_data['Qualifier'])
                         if command in commands:
+                            _ProgramLog('GVE: Register:{}:{}:{}:{}'.format(gve_data['GVE Device ID'],friendly_name,cmd,qualifier_dict),'info')
                             f = __class__.__make_gve_device_handler(gve_data['GVE Device ID'],gve_command,command)
                             instance.SubscribeStatus(command,qualifier_dict,f)
                             if 'Poll Interval' in lamp_status_data:__class__.__gve_polling_list.append([instance,command,qualifier_dict,int(lamp_status_data['Poll Interval'])])
@@ -1362,14 +1387,33 @@ class DebugServer():
                         if 'Qualifier' in custom_status_data:qualifier_dict = custom_status_data['Qualifier']
                         value_map = {}
                         if 'Value Map' in custom_status_data:value_map = custom_status_data['Value Map']
+                        on_values = {}
+                        if 'On Values' in custom_status_data:on_values = custom_status_data['On Values']
+                        off_values = {}
+                        if 'Off Values' in custom_status_data:off_values = custom_status_data['Off Values']
                         if command in commands:
-                            f = __class__.__make_gve_device_handler(custom_status_data['GVE Device ID'],'Source',command,qualifier_dict,value_map)
-                            instance.SubscribeStatus(command,qualifier_dict,f)
+                            _ProgramLog('GVE: Register:{}:{}:{}:{}'.format(custom_status_data['GVE Device ID'],friendly_name,command,qualifier_dict),'info')
+                            f = __class__.__make_gve_device_handler(custom_status_data['GVE Device ID'],'Source',command,qualifier_dict,value_map,on_values,off_values)
+                            if is_module or qualifier_dict:instance.SubscribeStatus(command,None,f)
+                            else:instance.SubscribeStatus(command,f)
                             if 'Poll Interval' in custom_status_data:__class__.__gve_polling_list.append([instance,command,qualifier_dict,int(custom_status_data['Poll Interval'])])
+                if 'System Source Usage' in gve_data:
+                    for usage_map_data in gve_data['System Source Usage']:
+                        command = usage_map_data['Command']
+                        qualifier_dict = None
+                        if 'Qualifier' in usage_map_data:qualifier_dict = usage_map_data['Qualifier']
+                        value_map = {}
+                        if 'Value Map' in usage_map_data:value_map = usage_map_data['Value Map']
+                        if command in commands:
+                            _ProgramLog('GVE: Source Usage:{}:{}:{}'.format(usage_map_data['Display GVE ID'],command,qualifier_dict),'info')
+                            f = __class__.__make_gve_device_handler(usage_map_data['Display GVE ID'],'Source',command,qualifier_dict,value_map,on_values,off_values)
+                            if is_module or qualifier_dict:instance.SubscribeStatus(command,None,f)
+                            else:instance.SubscribeStatus(command,f)
+                            if 'Poll Interval' in usage_map_data:__class__.__gve_polling_list.append([instance,command,qualifier_dict,int(usage_map_data['Poll Interval'])])
             if __class__.__gve_polling_timer == None and len(__class__.__gve_polling_list)>0:
                 __class__.__gve_polling_timer = _Timer(1,__class__.__make_gve_polling_timer())
-    def __make_gve_device_handler(device_id,gve_command,command,qualifier_dict=None,value_map={}):
-        def f(command,value,qualifier):
+    def __make_gve_device_handler(device_id,gve_command,command,qualifier_dict=None,value_map={},on_values=[],off_values=[]):
+        def f(command,value,qualifier=None):
             if qualifier_dict and qualifier:
                 for key in qualifier_dict:
                     if key not in qualifier:return
@@ -1377,6 +1421,11 @@ class DebugServer():
             if value in value_map: adj_value = value_map[value]
             else: adj_value = value
             __class__.__gve_instance.SendStatus(device_id,gve_command,adj_value)
+            if value in on_values:
+                __class__.__gve_instance.SendStatus(device_id,'Connection','Connected')
+            if value in off_values:
+                __class__.__gve_instance.SendStatus(device_id,'Connection','Disconnected')
+
         return f
     def __make_gve_command_handler(device_id,gve_command,instance,command,qualifier_dict=None,value_map={}):
         def f(gve_object,details):
@@ -1526,18 +1575,26 @@ class __InterfaceWrapper(DebugServer):
 
         mod = self.device_module
         self.__interface = interface
-        class devclass(mod):
-            def __init__(self):
-                conntype = connectiontype
-                if connectiontype == 'SerialOverEthernet':
-                    conntype = 'Ethernet'
-                if connectiontype == 'SSH':
-                    conntype = 'Ethernet'
-                self.ConnectionType = conntype
-                mod.__init__(self)
-        self.device = devclass()
-        self.device.Send = self.Send
-        self.device.SendAndWait = self.SendAndWait
+        if connectiontype != 'HTTP':
+            class devclass(mod):
+                def __init__(self):
+                    conntype = connectiontype
+                    if connectiontype == 'SerialOverEthernet':
+                        conntype = 'Ethernet'
+                    if connectiontype == 'SSH':
+                        conntype = 'Ethernet'
+                    self.ConnectionType = conntype
+                    mod.__init__(self)
+            self.device = devclass()
+            self.device.Send = self.Send
+            self.device.SendAndWait = self.SendAndWait
+        else:
+            class devclass(mod):
+                def __init__(self,ipAddress, port, deviceUsername=None, devicePassword=None, Model=None):
+                    self.ConnectionType = 'HTTP'
+                    mod.__init__(self,ipAddress, port, deviceUsername=None, devicePassword=None, Model=None)
+            self.__hostname = interface.IPAddress
+            self.device = devclass(interface.IPAddress,interface.Port,interface.DeviceUsername,interface.DevicePassword,interface.Model)
         self.__subscriber = self.__ModuleSubscribeWrapper(self.device)
         self.device.SubscribeStatus = self.__subscriber.SubscribeStatus
         self.device.NewStatus = self.__replacement_newstatus
@@ -2100,6 +2157,30 @@ class __InterfaceWrapper(DebugServer):
             else:
                 print(command, 'does not exist in the module')
 
+class HTTPModuleWrapper(__InterfaceWrapper):
+    def Create_Device(self, ipAddress, port, deviceUsername=None, devicePassword=None, Model=None):
+        self._InterfaceWrapper__interface_type = 'HTTP'
+        self._InterfaceWrapper__model = Model
+        class interface_class():
+            def __init__(self,ipAddress, port, deviceUsername=None, devicePassword=None, Model=None):
+                self.IPAddress = ipAddress
+                self.Port = port
+                self.IPPort = port
+                self.DeviceUsername = deviceUsername
+                self.DevicePassword = devicePassword
+                self.Model = Model
+                self.Credentials = (deviceUsername,devicePassword)
+                self.Protocol = 'HTTP'
+                self.ServicePort = 0
+            def Error(self, message):
+                portInfo = 'Host IP: {0}, Port: {1}'.format(self.IPAddress, self.Port)
+                print('Module: {}'.format(__name__), portInfo, 'Error Message: {}'.format(message[0]), sep='\r\n')
+            def Discard(self, message):
+                self.Error([message])
+            def Disconnect(self):
+                self.OnDisconnected()
+        interface = interface_class(ipAddress, port, deviceUsername, devicePassword, Model)
+        self._InterfaceWrapper__fn_device_init('HTTP',interface)
 class SerialModuleWrapper(__InterfaceWrapper):
     def Create_Device(self, Host, Port, Baud=9600, Data=8, Parity='None', Stop=1, FlowControl='Off', CharDelay=0, Mode='RS232', Model =None):
         self._InterfaceWrapper__interface_type = 'Serial'
@@ -8036,7 +8117,7 @@ class VirtualUI(DebugServer):
     __where_used = {}
 
     #get the list of where used files, should be one per TP in system
-    dirlist = File.ListDir()
+    dirlist = _File.ListDir()
     file_count = 0
     for filename in dirlist:
         if '_WhereUsedReportSheet.csv' in filename:
@@ -8048,17 +8129,17 @@ class VirtualUI(DebugServer):
             alias = filename.replace('_WhereUsedReportSheet.csv','')
             __where_used[alias] = {'Button':[],'Label':[],'Level':[],'Slider':[],'Knob':[],'Pages':[],'Popup Pages':[],'Popup Groups':[]}
             print('__WhereUsed: processing {} start'.format(filename))
-            if not File.Exists('/{}'.format(filename)):
+            if not _File.Exists('/{}'.format(filename)):
                 print('__WhereUsed: {} not found'.format(filename))
             print('__WhereUsed: processing {} reader created'.format(filename))
             try:
-                csv_file = File('/{}'.format(filename),'r')
+                csv_file = _File('/{}'.format(filename),'r')
             except Exception as e:
                 print('__WhereUsed: failed to open and read {}: {}'.format(filename,e))
             row = []
             rows = []
             if csv_file:
-                row = File.readline(csv_file)
+                row = _File.readline(csv_file)
             while row:
                 row = row.split(',')
                 count = 0
@@ -8071,7 +8152,7 @@ class VirtualUI(DebugServer):
                         row[count] = item.replace('\r','')
                     count += 1
                 rows.append(row)
-                row = File.readline(csv_file)
+                row = _File.readline(csv_file)
             csv_file.close()
             line_num = 0
             print('__WhereUsed: total rows of file {} : {}'.format(filename,len(rows)))
@@ -8103,8 +8184,13 @@ class VirtualUI(DebugServer):
             print('__WhereUsed: processing {} complete'.format(filename))
     print('__WhereUsed: {} files processed'.format(file_count))
 
+    def check_defined(alias,type,value):
+        type = type + 's'
+        if alias not in __class__.__devTPs:return False
+        if type not in __class__.__devTPs[alias]:return False
+        return value in __class__.__devTPs[alias][type]
     def check_exists(alias,type,value):
-        if alias not in __class__.__where_used:return True
+        if alias not in __class__.__where_used: return True
         if alias in __class__.__where_used:
             if type in __class__.__where_used[alias]:
                 if value not in __class__.__where_used[alias][type]:print('__WhereUsed: {} {} not found for {}'.format(type,value,alias))
@@ -9116,7 +9202,7 @@ class VirtualUI(DebugServer):
                 self.__set_object_value(key,[value])
                 item = None #type:_Button
                 for alias in panel_aliases:
-                    if not __class__.check_exists(alias,'Button',itemID):continue
+                    if not __class__.check_defined(alias,'Button',itemID):continue
                     item = self.__devTPs[alias]['Buttons'][itemID]['Object']
                     if item:
                         item.SetState(value)
@@ -9143,7 +9229,7 @@ class VirtualUI(DebugServer):
                 self.__set_object_value(key,[value])
                 item = None #type:_Button
                 for alias in panel_aliases:
-                    if not __class__.check_exists(alias,'Button',itemID):continue
+                    if not __class__.check_defined(alias,'Button',itemID):continue
                     item = self.__devTPs[alias]['Buttons'][itemID]['Object']
                     if item:
                         item.SetText(value)
@@ -9158,7 +9244,7 @@ class VirtualUI(DebugServer):
                 self.__set_object_value(key,[value])
                 item = None #type:_Label
                 for alias in panel_aliases:
-                    if not __class__.check_exists(alias,'Label',itemID):continue
+                    if not __class__.check_defined(alias,'Label',itemID):continue
                     item = self.__devTPs[alias]['Labels'][itemID]['Object']
                     if item:
                         item.SetText(value)
@@ -9185,7 +9271,7 @@ class VirtualUI(DebugServer):
                 self.__set_object_value(key,[value])
                 item = None #type:_Button
                 for alias in panel_aliases:
-                    if not __class__.check_exists(alias,'Button',itemID):continue
+                    if not __class__.check_defined(alias,'Button',itemID):continue
                     item = self.__devTPs[alias]['Buttons'][itemID]['Object']
                     if item:
                         item.SetBlinking(rate,value)
@@ -9212,7 +9298,7 @@ class VirtualUI(DebugServer):
                 self.__set_object_value(key,[value])
                 item = None #type:_Button
                 for alias in panel_aliases:
-                    if not __class__.check_exists(alias,'Button',itemID):continue
+                    if not __class__.check_defined(alias,'Button',itemID):continue
                     item = self.__devTPs[alias]['Buttons'][itemID]['Object']
                     if item:
                         item.CustomBlink(rate,value)
@@ -9239,7 +9325,7 @@ class VirtualUI(DebugServer):
                 self.__set_object_value(key,[value])
                 item = None #type:_Level
                 for alias in panel_aliases:
-                    if not __class__.check_exists(alias,'Level',itemID):continue
+                    if not __class__.check_defined(alias,'Level',itemID):continue
                     item = self.__devTPs[alias]['Levels'][itemID]['Object']
                     if item:
                         item.SetLevel(value)
@@ -9266,7 +9352,7 @@ class VirtualUI(DebugServer):
                 self.__set_object_value(key,[value])
                 item = None #type:_Slider
                 for alias in panel_aliases:
-                    if not __class__.check_exists(alias,'Slider',itemID):continue
+                    if not __class__.check_defined(alias,'Slider',itemID):continue
                     item = self.__devTPs[alias]['Sliders'][itemID]['Object']
                     if item:
                         item.SetFill(value)
@@ -9294,7 +9380,7 @@ class VirtualUI(DebugServer):
                 self.__set_object_value(key,[value])
                 item = None #type:_Button
                 for alias in panel_aliases:
-                    if not __class__.check_exists(alias,'Button',itemID):continue
+                    if not __class__.check_defined(alias,'Button',itemID):continue
                     item = self.__devTPs[alias]['Buttons'][itemID]['Object']
                     if item:
                         item.SetEnable(value)
@@ -9309,7 +9395,7 @@ class VirtualUI(DebugServer):
                 self.__set_object_value(key,[value])
                 item = None #type:_Slider
                 for alias in panel_aliases:
-                    if not __class__.check_exists(alias,'Slider',itemID):continue
+                    if not __class__.check_defined(alias,'Slider',itemID):continue
                     item = self.__devTPs[alias]['Sliders'][itemID]['Object']
                     if item:
                         item.SetEnable(value)
@@ -9337,7 +9423,7 @@ class VirtualUI(DebugServer):
                 self.__set_object_value(key,[value])
                 item = None #type:_Button
                 for alias in panel_aliases:
-                    if not __class__.check_exists(alias,'Button',itemID):continue
+                    if not __class__.check_defined(alias,'Button',itemID):continue
                     item = self.__devTPs[alias]['Buttons'][itemID]['Object']
                     if item:
                         item.SetVisible(value)
@@ -9352,7 +9438,7 @@ class VirtualUI(DebugServer):
                 self.__set_object_value(key,[value])
                 item = None #type:_Label
                 for alias in panel_aliases:
-                    if not __class__.check_exists(alias,'Label',itemID):continue
+                    if not __class__.check_defined(alias,'Label',itemID):continue
                     item = self.__devTPs[alias]['Labels'][itemID]['Object']
                     if item:
                         item.SetVisible(value)
@@ -9367,7 +9453,7 @@ class VirtualUI(DebugServer):
                 self.__set_object_value(key,[value])
                 item = None #type:_Level
                 for alias in panel_aliases:
-                    if not __class__.check_exists(alias,'Level',itemID):continue
+                    if not __class__.check_defined(alias,'Level',itemID):continue
                     item = self.__devTPs[alias]['Levels'][itemID]['Object']
                     if item:
                         item.SetVisible(value)
@@ -9382,7 +9468,7 @@ class VirtualUI(DebugServer):
                 self.__set_object_value(key,[value])
                 item = None #type:_Slider
                 for alias in panel_aliases:
-                    if not __class__.check_exists(alias,'Slider',itemID):continue
+                    if not __class__.check_defined(alias,'Slider',itemID):continue
                     item = self.__devTPs[alias]['Sliders'][itemID]['Object']
                     if item:
                         item.SetVisible(value)
@@ -9398,7 +9484,7 @@ class VirtualUI(DebugServer):
                     self.__set_object_value(key,[value])
                     item = None #type:_Video
                     for alias in panel_aliases:
-                        if not __class__.check_exists(alias,'Video',itemID):continue
+                        if not __class__.check_defined(alias,'Video',itemID):continue
                         item = self.__devTPs[alias]['Videos'][itemID]['Object']
                         if item:
                             item.SetVisible(value)
@@ -9426,6 +9512,7 @@ class VirtualUI(DebugServer):
                 self.__set_object_value(key,[minimum,maximum,step])
                 item = None #type:_Level
                 for alias in panel_aliases:
+                    if not __class__.check_defined(alias,'Slider',itemID):continue
                     item = self.__devTPs[alias]['Levels'][itemID]['Object']
                     if item:
                         item.SetRange(minimum,maximum,step)
@@ -9440,7 +9527,7 @@ class VirtualUI(DebugServer):
                 self.__set_object_value(key,[minimum,maximum,step])
                 item = None #type:_Slider
                 for alias in panel_aliases:
-                    if not __class__.check_exists(alias,'Slider',itemID):continue
+                    if not __class__.check_defined(alias,'Slider',itemID):continue
                     item = self.__devTPs[alias]['Sliders'][itemID]['Object']
                     if item:
                         item.SetRange(minimum,maximum,step)
@@ -9465,7 +9552,7 @@ class VirtualUI(DebugServer):
             if itemID in self.__lvlIDs:
                 item = None #type:_Level
                 for alias in panel_aliases:
-                    if not __class__.check_exists(alias,'Level',itemID):continue
+                    if not __class__.check_defined(alias,'Level',itemID):continue
                     item = self.__devTPs[alias]['Levels'][itemID]['Object']
                     if item:
                         item.Dec()
@@ -9488,7 +9575,7 @@ class VirtualUI(DebugServer):
             if itemID in self.__lvlIDs:
                 item = None #type:_Level
                 for alias in panel_aliases:
-                    if not __class__.check_exists(alias,'Button',itemID):continue
+                    if not __class__.check_defined(alias,'Button',itemID):continue
                     item = self.__devTPs[alias]['Levels'][itemID]['Object']
                     if item:
                         item.Inc()
@@ -9515,7 +9602,7 @@ class VirtualUI(DebugServer):
             if itemID in self.__videoIDs:
                 item = None #type:_Video
                 for alias in panel_aliases:
-                    if not __class__.check_exists(alias,'Video',itemID):continue
+                    if not __class__.check_defined(alias,'Video',itemID):continue
                     item = self.__devTPs[alias]['Videos'][itemID]['Object']
                     if item:
                         item.SetInput(input)
@@ -9548,7 +9635,7 @@ class VirtualUI(DebugServer):
             if itemID in self.__videoIDs:
                 item = None #type:_Video
                 for alias in panel_aliases:
-                    if not __class__.check_exists(alias,'Video',itemID):continue
+                    if not __class__.check_defined(alias,'Video',itemID):continue
                     item = self.__devTPs[alias]['Videos'][itemID]['Object']
                     if item:
                         item.SetStreamSource(source)
@@ -10113,9 +10200,9 @@ Within program:
 
     Use the SubscribeStatus function to subscribe to feedback:
         def gve_connectionstatus_handler(gve_interface,status):
-            if status == 'Connected:
+            if status == 'Connected':
                 pass
-            if status == 'Disconnected:
+            if status == 'Disconnected':
                 pass
         gve.SubscribeStatus('ConnectionStatus',gve_connectionstatus_handler)
 
@@ -10253,7 +10340,7 @@ With Mixed method:
     use the constructor :
         gve = GVEInterfaceWrapper()
     and it will return the instance created by the config file.
-    If there is no config file, it'll
+    If there is no config file, it'll construct a new instance. If parameters aren't supplied, it won't enable.
 
 """
 class GVEInterfaceWrapper(DebugServer):
@@ -10351,6 +10438,10 @@ class GVEInterfaceWrapper(DebugServer):
                     _ProgramLog(err_msg)
         @_event(self.__interface,'GVEServerDisconnected')
         def handleGVEServerDisconnected(interface,state):
+            # So it turns out the GVE connection status is only briefly when the gve server needs to request something.
+            # the heartbeat is only 1-way (ipcp to gve) and there is no reply.
+            # if the server ever comes online, we have to assume it is online from that point on.
+            return
             state = 'Disconnected'
             self.Commands['ConnectionStatus']['Status']['Live'] = state
             update = {'command':'ConnectionStatus','value':state,'qualifier':None}
@@ -10627,7 +10718,6 @@ class _gveClient:
             ('Any', 'LAN', or 'AVLAN')
         :type Interface: string
         """
-
         self.Hostname = Hostname
         self.MACAddress = HostDevice.MACAddress.replace('-', '').upper()
         self.IPPort = IPPort
@@ -10638,6 +10728,7 @@ class _gveClient:
         self.__sequence = 0
         self.__canCommunicate = True
         self.__dataBuffer = ''
+        self.__can_ping_gve = False
 
         # Event handlers
         self.__DiagnosticSendText = self.__unassigned
@@ -10660,14 +10751,16 @@ class _gveClient:
 
         @_Wait(3.0)
         def StartKeepAlive():
-            self.__SendHeartBeat(None, None)
-            _Timer(20, self.__SendHeartBeat)
+            self.__SendHeartBeat()(None, 1)
+            _Timer(20, self.__SendHeartBeat())
 
     def __GVEServerConnected_handler(self, _, state):
         self.__GVEServerConnected(self, state)
 
     def __GVEServerDisconnected_handler(self, _, state):
-        self.__GVEServerDisconnected(self, state)
+        # This isn't really a good reference to if the GVE server is offline
+        # The GVE server immediately closes the TCP connection after sending a command to the processor.
+        pass# self.__GVEServerDisconnected(self, state)
 
     def __CreateCommandString(self, command=None):
         """ Command String Builder
@@ -10689,22 +10782,36 @@ class _gveClient:
 
     def __UDPSend(self, data):
         if self.printToDebugSend:
+            # _ProgramLog('GVE:Send:{}'.format(data))
             self.printToDebugSend(data)
-        try:
-            self.__UDPSender.Send(data)
-        except Exception:
-            # gaierror is the only known exception.  Unable to import gaierror
-            # from disallowed non-built-in module socket.
-            self.__DiagnosticSendText(self, 'Cannot send: network error')
+        if self.__canCommunicate:
+            try:
+                self.__UDPSender.Send(data)
+            except Exception as e:
+                # gaierror is the only known exception.  Unable to import gaierror
+                # from disallowed non-built-in module socket.
+                DebugPrint.Print('Error sending udp message:{}'.format(e))
+                self.__DiagnosticSendText(self, 'Cannot send: network error')
 
-    def __SendHeartBeat(self, timer, count):
-        """ Send Hearbeat Message
+    def __SendHeartBeat(self):
+        def t(timer, count):
+            """ Send Hearbeat Message
 
-        Recursive Loop that sends heartbeat every 20.0 seconds.
-        """
-        SendString = self.__CreateCommandString()
-        self.__DiagnosticSendText(self, SendString)
-        self.__UDPSend(SendString)
+            Recursive Loop that sends heartbeat every 20.0 seconds.
+            """
+            SendString = self.__CreateCommandString()
+            self.__DiagnosticSendText(self, SendString)
+            self.__UDPSend(SendString)
+            # every minute, do a ping check
+            if count%3 == 0:
+                num_good,num_bad,time = _Ping(self.Hostname,count=1)
+                # DebugPrint.Print('GVE:Ping Result:{}'.format(num_good))
+                if num_good == 0 and self.__can_ping_gve:
+                    self.__GVEServerDisconnected()
+                    self.__canCommunicate = False
+                self.__can_ping_gve = num_good > 0
+        return t
+
 
     def __SendFullUpdate(self):
         """ Send Full System Update Message
@@ -10720,7 +10827,7 @@ class _gveClient:
                 cmdString = cmdString[:-1] + \
                         '~{0}={1}]'.format(subkey, self.GVEStatus[key][subkey])
 
-        if cmdString and self.__canCommunicate:
+        if cmdString and True:#self.__canCommunicate:
             SendString = self.__CreateCommandString(cmdString)
             self.__DiagnosticSendText(self, SendString)
             self.__UDPSend(SendString)
@@ -10740,12 +10847,12 @@ class _gveClient:
             '0': 'Off',
             '1': 'On',
             }
-
         if device == '0' and ActionDict[actionID] == 'Update':
             if actionState == '1':
                 self.__canCommunicate = True
                 self.__SendFullUpdate()
             elif actionState == '0':
+                DebugPrint.Print('GVE: The GVE Server just told us that we cannot communicate and closed the connection')
                 self.__canCommunicate = False
         elif device == '0' and ActionDict[actionID] == 'Room Event':
             RoomEventData = actionState.split('_')
@@ -10766,6 +10873,7 @@ class _gveClient:
         Processes incoming data and validates commands that match MAC Address
         """
         if self.printToDebugReceive:
+            #_ProgramLog('GVE:Receive:{}'.format(data))
             self.printToDebugReceive(data.decode())
         tempBuffer = self.__dataBuffer + data.decode()
 

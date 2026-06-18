@@ -32,6 +32,7 @@ class ProgramDebuggerClass():
         self.__timestamp_newest_first = True
         self.__device_color_wait = None
         self.__device_color_wait_busy = False
+        self.__device_colors = {}
         self.__setDeviceListWait = None
         self.__debug_view_mode = ''
         self.__module_view_mode = 'command'
@@ -1310,6 +1311,7 @@ class ProgramDebuggerClass():
             'Serial':self.__frame_device_commands_for_modules,
             'SerialOverEthernet':self.__frame_device_commands_for_modules,
             'Ethernet':self.__frame_device_commands_for_modules,
+            'HTTP':self.__frame_device_commands_for_modules,
             'Dante':self.__frame_device_commands_for_modules,
             'SSH':self.__frame_device_commands_for_modules,
             'SPI':self.__frame_device_commands_for_modules,
@@ -2444,7 +2446,7 @@ class ProgramDebuggerClass():
                 self.__lbl_device_comm_detail4.config(text= ' Mode: {} '.format(conn_details['mode']))
                 if conn_details['mode'] == 'UDP':
                     self.__lbl_device_comm_detail5.config(text= ' Service Port: {} '.format(conn_details['serviceport']))
-            elif dtype == 'SSH':
+            elif dtype == 'SSH' or dtype == 'HTTP':
                 self.Show(self.__frame_device_reinit)
                 self.__lbl_device_comm_detail3.config(text= ' Port: {} '.format(conn_details['port']))
                 self.__lbl_device_comm_detail4.config(text= ' Mode: {} '.format(conn_details['mode']))
@@ -2694,7 +2696,6 @@ class ProgramDebuggerClass():
 
 
             self.__set_device_list_colors()
-            #self.__clear_all_device_logs()
             self.__lbl_devices_found['text'] = 'Devices Found : {}'.format(len(self.device_info))
             self.__reading_devices_busy = False
             self.Show(self.__frame_header_body_nav)
@@ -2740,9 +2741,13 @@ class ProgramDebuggerClass():
                             color = 'red'
                         if onlinestatus['Live'] == 'Disconnected':
                             color = 'red'
-                self.__device_tree.tag_configure(str(device_id),foreground=color) #todo
-                menu = self.__om_devices.children['menu']
-                menu.entryconfig(i,foreground=color)
+                if i not in self.__device_colors:
+                    self.__device_colors[i] = ''
+                if self.__device_colors[i] != color:
+                    self.__device_colors[i] = color
+                    self.__device_tree.tag_configure(str(device_id),foreground=color)
+                    menu = self.__om_devices.children['menu']
+                    menu.entryconfig(i,foreground=color)
             self.__device_color_wait_busy = False
             self.__reading_devices_busy = False
         if self.__device_color_wait is None:
