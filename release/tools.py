@@ -84,10 +84,10 @@ import time as _time
 """
 Author: Jean-Luc Rioux
 Company: Valley Communications
-Last Modified Date: 2026-04-16
-Version: 1.10.0.0
+Last Modified Date: 2026-09-08
+Version: 1.10.0.3
 Minimum Pro Controller FW: 3.10
-Minimum Pro Q xi Controller FW: 1.09
+Minimum Pro xi Controller FW: 1.09
 
 Changelog:
     v 1.0 - initial release
@@ -267,6 +267,12 @@ Changelog:
             - only 1 "System Source Usage" section allowed in the config file, doesn't work with cascading switching.
         - fully tested through GVE functions
         - GVE wrapper now pings GVE server once communication is established to supply some form of reliable connected status feedback
+    v 1.10.0.2 - tools.py modification
+        - Add HTTPModuleWrapper.
+            - only commands to and events from the module are logged.
+        - VirtualUI - now checks if object is defined on a panel before doing a 'Set' command, aka 'SetText' to avoid pointless entries in program log.
+    v 1.10.0.3 - tools.py modification
+        - Fixed Update and Set functions for HTTPModuleWrapper
 """
 
 
@@ -1095,7 +1101,7 @@ class DebugServer():
                 result[key]['communication']['mode'] = str(interface.Mode)
                 result[key]['communication']['port'] = str(interface.Port)
                 result[key]['communication']['baud'] = '{},{},{},{}'.format(str(interface.Baud),str(interface.Data),str(interface.Parity),str(interface.Stop))
-            elif comm_type in ['SerialOverEthernet','Ethernet','SSH','GVE']:
+            elif comm_type in ['SerialOverEthernet','Ethernet','SSH','GVE','HTTP']:
                 result[key]['status'] = instances[key]['instance'].device.Commands
                 result[key]['communication']['host'] = instances[key]['instance'].GetHostname()
                 result[key]['communication']['mode'] = str(interface.Protocol)
@@ -1402,7 +1408,7 @@ class DebugServer():
                         if 'Value Map' in usage_map_data:value_map = usage_map_data['Value Map']
                         if command in commands:
                             _ProgramLog('GVE: Source Usage:{}:{}:{}'.format(usage_map_data['Display GVE ID'],command,qualifier_dict),'info')
-                            f = __class__.__make_gve_device_handler(usage_map_data['Display GVE ID'],'Source',command,qualifier_dict,value_map)
+                            f = __class__.__make_gve_device_handler(usage_map_data['Display GVE ID'],'Source',command,qualifier_dict,value_map,on_values,off_values)
                             if is_module or qualifier_dict:instance.SubscribeStatus(command,None,f)
                             else:instance.SubscribeStatus(command,f)
                             if 'Poll Interval' in usage_map_data:__class__.__gve_polling_list.append([instance,command,qualifier_dict,int(usage_map_data['Poll Interval'])])
@@ -1571,18 +1577,26 @@ class __InterfaceWrapper(DebugServer):
 
         mod = self.device_module
         self.__interface = interface
-        class devclass(mod):
-            def __init__(self):
-                conntype = connectiontype
-                if connectiontype == 'SerialOverEthernet':
-                    conntype = 'Ethernet'
-                if connectiontype == 'SSH':
-                    conntype = 'Ethernet'
-                self.ConnectionType = conntype
-                mod.__init__(self)
-        self.device = devclass()
-        self.device.Send = self.Send
-        self.device.SendAndWait = self.SendAndWait
+        if connectiontype != 'HTTP':
+            class devclass(mod):
+                def __init__(self):
+                    conntype = connectiontype
+                    if connectiontype == 'SerialOverEthernet':
+                        conntype = 'Ethernet'
+                    if connectiontype == 'SSH':
+                        conntype = 'Ethernet'
+                    self.ConnectionType = conntype
+                    mod.__init__(self)
+            self.device = devclass()
+            self.device.Send = self.Send
+            self.device.SendAndWait = self.SendAndWait
+        else:
+            class devclass(mod):
+                def __init__(self,ipAddress, port, deviceUsername=None, devicePassword=None, Model=None):
+                    self.ConnectionType = 'HTTP'
+                    mod.__init__(self,ipAddress, port, deviceUsername=deviceUsername, devicePassword=devicePassword, Model=None)
+            self.__hostname = interface.IPAddress
+            self.device = devclass(interface.IPAddress,interface.Port,interface.DeviceUsername,interface.DevicePassword,interface.Model)
         self.__subscriber = self.__ModuleSubscribeWrapper(self.device)
         self.device.SubscribeStatus = self.__subscriber.SubscribeStatus
         self.device.NewStatus = self.__replacement_newstatus
@@ -1747,7 +1761,7 @@ class __InterfaceWrapper(DebugServer):
             return
         if method is not None and callable(method):
             try:
-                if self.__interface_type in ['Serial','SPI']:
+                if self.__interface_type in ['Serial','SPI','HTTP']:
                     method(value, qualifier)
                 elif self.device.connectionFlag:
                     method(value, qualifier)
@@ -1778,7 +1792,7 @@ class __InterfaceWrapper(DebugServer):
             return
         if method is not None and callable(method):
             try:
-                if self.__interface_type in ['Serial','SPI']:
+                if self.__interface_type in ['Serial','SPI','HTTP']:
                     method(None, qualifier)
                 elif self.device.connectionFlag:
                     method(None, qualifier)
@@ -2145,6 +2159,30 @@ class __InterfaceWrapper(DebugServer):
             else:
                 print(command, 'does not exist in the module')
 
+class HTTPModuleWrapper(__InterfaceWrapper):
+    def Create_Device(self, ipAddress, port, deviceUsername=None, devicePassword=None, Model=None):
+        self._InterfaceWrapper__interface_type = 'HTTP'
+        self._InterfaceWrapper__model = Model
+        class interface_class():
+            def __init__(self,ipAddress, port, deviceUsername=None, devicePassword=None, Model=None):
+                self.IPAddress = ipAddress
+                self.Port = port
+                self.IPPort = port
+                self.DeviceUsername = deviceUsername
+                self.DevicePassword = devicePassword
+                self.Model = Model
+                self.Credentials = (deviceUsername,devicePassword)
+                self.Protocol = 'HTTP'
+                self.ServicePort = 0
+            def Error(self, message):
+                portInfo = 'Host IP: {0}, Port: {1}'.format(self.IPAddress, self.Port)
+                print('Module: {}'.format(__name__), portInfo, 'Error Message: {}'.format(message[0]), sep='\r\n')
+            def Discard(self, message):
+                self.Error([message])
+            def Disconnect(self):
+                self.OnDisconnected()
+        interface = interface_class(ipAddress, port, deviceUsername, devicePassword, Model)
+        self._InterfaceWrapper__fn_device_init('HTTP',interface)
 class SerialModuleWrapper(__InterfaceWrapper):
     def Create_Device(self, Host, Port, Baud=9600, Data=8, Parity='None', Stop=1, FlowControl='Off', CharDelay=0, Mode='RS232', Model =None):
         self._InterfaceWrapper__interface_type = 'Serial'
@@ -8148,8 +8186,13 @@ class VirtualUI(DebugServer):
             print('__WhereUsed: processing {} complete'.format(filename))
     print('__WhereUsed: {} files processed'.format(file_count))
 
+    def check_defined(alias,type,value):
+        type = type + 's'
+        if alias not in __class__.__devTPs:return False
+        if type not in __class__.__devTPs[alias]:return False
+        return value in __class__.__devTPs[alias][type]
     def check_exists(alias,type,value):
-        if alias not in __class__.__where_used:return True
+        if alias not in __class__.__where_used: return True
         if alias in __class__.__where_used:
             if type in __class__.__where_used[alias]:
                 if value not in __class__.__where_used[alias][type]:print('__WhereUsed: {} {} not found for {}'.format(type,value,alias))
@@ -9161,7 +9204,7 @@ class VirtualUI(DebugServer):
                 self.__set_object_value(key,[value])
                 item = None #type:_Button
                 for alias in panel_aliases:
-                    if not __class__.check_exists(alias,'Button',itemID):continue
+                    if not __class__.check_defined(alias,'Button',itemID):continue
                     item = self.__devTPs[alias]['Buttons'][itemID]['Object']
                     if item:
                         item.SetState(value)
@@ -9188,7 +9231,7 @@ class VirtualUI(DebugServer):
                 self.__set_object_value(key,[value])
                 item = None #type:_Button
                 for alias in panel_aliases:
-                    if not __class__.check_exists(alias,'Button',itemID):continue
+                    if not __class__.check_defined(alias,'Button',itemID):continue
                     item = self.__devTPs[alias]['Buttons'][itemID]['Object']
                     if item:
                         item.SetText(value)
@@ -9203,7 +9246,7 @@ class VirtualUI(DebugServer):
                 self.__set_object_value(key,[value])
                 item = None #type:_Label
                 for alias in panel_aliases:
-                    if not __class__.check_exists(alias,'Label',itemID):continue
+                    if not __class__.check_defined(alias,'Label',itemID):continue
                     item = self.__devTPs[alias]['Labels'][itemID]['Object']
                     if item:
                         item.SetText(value)
@@ -9230,7 +9273,7 @@ class VirtualUI(DebugServer):
                 self.__set_object_value(key,[value])
                 item = None #type:_Button
                 for alias in panel_aliases:
-                    if not __class__.check_exists(alias,'Button',itemID):continue
+                    if not __class__.check_defined(alias,'Button',itemID):continue
                     item = self.__devTPs[alias]['Buttons'][itemID]['Object']
                     if item:
                         item.SetBlinking(rate,value)
@@ -9257,7 +9300,7 @@ class VirtualUI(DebugServer):
                 self.__set_object_value(key,[value])
                 item = None #type:_Button
                 for alias in panel_aliases:
-                    if not __class__.check_exists(alias,'Button',itemID):continue
+                    if not __class__.check_defined(alias,'Button',itemID):continue
                     item = self.__devTPs[alias]['Buttons'][itemID]['Object']
                     if item:
                         item.CustomBlink(rate,value)
@@ -9284,7 +9327,7 @@ class VirtualUI(DebugServer):
                 self.__set_object_value(key,[value])
                 item = None #type:_Level
                 for alias in panel_aliases:
-                    if not __class__.check_exists(alias,'Level',itemID):continue
+                    if not __class__.check_defined(alias,'Level',itemID):continue
                     item = self.__devTPs[alias]['Levels'][itemID]['Object']
                     if item:
                         item.SetLevel(value)
@@ -9311,7 +9354,7 @@ class VirtualUI(DebugServer):
                 self.__set_object_value(key,[value])
                 item = None #type:_Slider
                 for alias in panel_aliases:
-                    if not __class__.check_exists(alias,'Slider',itemID):continue
+                    if not __class__.check_defined(alias,'Slider',itemID):continue
                     item = self.__devTPs[alias]['Sliders'][itemID]['Object']
                     if item:
                         item.SetFill(value)
@@ -9339,7 +9382,7 @@ class VirtualUI(DebugServer):
                 self.__set_object_value(key,[value])
                 item = None #type:_Button
                 for alias in panel_aliases:
-                    if not __class__.check_exists(alias,'Button',itemID):continue
+                    if not __class__.check_defined(alias,'Button',itemID):continue
                     item = self.__devTPs[alias]['Buttons'][itemID]['Object']
                     if item:
                         item.SetEnable(value)
@@ -9354,7 +9397,7 @@ class VirtualUI(DebugServer):
                 self.__set_object_value(key,[value])
                 item = None #type:_Slider
                 for alias in panel_aliases:
-                    if not __class__.check_exists(alias,'Slider',itemID):continue
+                    if not __class__.check_defined(alias,'Slider',itemID):continue
                     item = self.__devTPs[alias]['Sliders'][itemID]['Object']
                     if item:
                         item.SetEnable(value)
@@ -9382,7 +9425,7 @@ class VirtualUI(DebugServer):
                 self.__set_object_value(key,[value])
                 item = None #type:_Button
                 for alias in panel_aliases:
-                    if not __class__.check_exists(alias,'Button',itemID):continue
+                    if not __class__.check_defined(alias,'Button',itemID):continue
                     item = self.__devTPs[alias]['Buttons'][itemID]['Object']
                     if item:
                         item.SetVisible(value)
@@ -9397,7 +9440,7 @@ class VirtualUI(DebugServer):
                 self.__set_object_value(key,[value])
                 item = None #type:_Label
                 for alias in panel_aliases:
-                    if not __class__.check_exists(alias,'Label',itemID):continue
+                    if not __class__.check_defined(alias,'Label',itemID):continue
                     item = self.__devTPs[alias]['Labels'][itemID]['Object']
                     if item:
                         item.SetVisible(value)
@@ -9412,7 +9455,7 @@ class VirtualUI(DebugServer):
                 self.__set_object_value(key,[value])
                 item = None #type:_Level
                 for alias in panel_aliases:
-                    if not __class__.check_exists(alias,'Level',itemID):continue
+                    if not __class__.check_defined(alias,'Level',itemID):continue
                     item = self.__devTPs[alias]['Levels'][itemID]['Object']
                     if item:
                         item.SetVisible(value)
@@ -9427,7 +9470,7 @@ class VirtualUI(DebugServer):
                 self.__set_object_value(key,[value])
                 item = None #type:_Slider
                 for alias in panel_aliases:
-                    if not __class__.check_exists(alias,'Slider',itemID):continue
+                    if not __class__.check_defined(alias,'Slider',itemID):continue
                     item = self.__devTPs[alias]['Sliders'][itemID]['Object']
                     if item:
                         item.SetVisible(value)
@@ -9443,7 +9486,7 @@ class VirtualUI(DebugServer):
                     self.__set_object_value(key,[value])
                     item = None #type:_Video
                     for alias in panel_aliases:
-                        if not __class__.check_exists(alias,'Video',itemID):continue
+                        if not __class__.check_defined(alias,'Video',itemID):continue
                         item = self.__devTPs[alias]['Videos'][itemID]['Object']
                         if item:
                             item.SetVisible(value)
@@ -9471,6 +9514,7 @@ class VirtualUI(DebugServer):
                 self.__set_object_value(key,[minimum,maximum,step])
                 item = None #type:_Level
                 for alias in panel_aliases:
+                    if not __class__.check_defined(alias,'Slider',itemID):continue
                     item = self.__devTPs[alias]['Levels'][itemID]['Object']
                     if item:
                         item.SetRange(minimum,maximum,step)
@@ -9485,7 +9529,7 @@ class VirtualUI(DebugServer):
                 self.__set_object_value(key,[minimum,maximum,step])
                 item = None #type:_Slider
                 for alias in panel_aliases:
-                    if not __class__.check_exists(alias,'Slider',itemID):continue
+                    if not __class__.check_defined(alias,'Slider',itemID):continue
                     item = self.__devTPs[alias]['Sliders'][itemID]['Object']
                     if item:
                         item.SetRange(minimum,maximum,step)
@@ -9510,7 +9554,7 @@ class VirtualUI(DebugServer):
             if itemID in self.__lvlIDs:
                 item = None #type:_Level
                 for alias in panel_aliases:
-                    if not __class__.check_exists(alias,'Level',itemID):continue
+                    if not __class__.check_defined(alias,'Level',itemID):continue
                     item = self.__devTPs[alias]['Levels'][itemID]['Object']
                     if item:
                         item.Dec()
@@ -9533,7 +9577,7 @@ class VirtualUI(DebugServer):
             if itemID in self.__lvlIDs:
                 item = None #type:_Level
                 for alias in panel_aliases:
-                    if not __class__.check_exists(alias,'Button',itemID):continue
+                    if not __class__.check_defined(alias,'Button',itemID):continue
                     item = self.__devTPs[alias]['Levels'][itemID]['Object']
                     if item:
                         item.Inc()
@@ -9560,7 +9604,7 @@ class VirtualUI(DebugServer):
             if itemID in self.__videoIDs:
                 item = None #type:_Video
                 for alias in panel_aliases:
-                    if not __class__.check_exists(alias,'Video',itemID):continue
+                    if not __class__.check_defined(alias,'Video',itemID):continue
                     item = self.__devTPs[alias]['Videos'][itemID]['Object']
                     if item:
                         item.SetInput(input)
@@ -9593,7 +9637,7 @@ class VirtualUI(DebugServer):
             if itemID in self.__videoIDs:
                 item = None #type:_Video
                 for alias in panel_aliases:
-                    if not __class__.check_exists(alias,'Video',itemID):continue
+                    if not __class__.check_defined(alias,'Video',itemID):continue
                     item = self.__devTPs[alias]['Videos'][itemID]['Object']
                     if item:
                         item.SetStreamSource(source)
